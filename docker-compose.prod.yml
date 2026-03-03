@@ -1,0 +1,305 @@
+version: "3.9"
+
+x-app-env: &app-env
+  NODE_ENV: production
+  DATABASE_URL: mongodb://admin:password@mongodb:27017/antesocial?authSource=admin
+  REDIS_URL: redis://default:redispassword@redis:6379
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  REDIS_USERNAME: default
+  REDIS_PASSWORD: redispassword
+  KAFKA_BROKERS: kafka:29092
+  KAFKA_AUTO_CREATE_TOPICS: "true"
+  KAFKA_MAX_RETRIES: "3"
+  KAFKA_RETRY_SUFFIX: ".retry"
+  KAFKA_DLQ_SUFFIX: ".dlq"
+  ENABLE_NOTIFICATION_KAFKA: "true"
+  ENABLE_REPUTATION_KAFKA: "true"
+  ENABLE_WS_KAFKA: "true"
+  FRONTEND_URL: http://localhost:3000
+  CORS_ORIGINS: http://localhost:3000
+  WS_ALLOWED_ORIGINS: http://localhost:3000
+
+x-app-common: &app-common
+  env_file:
+    - .env
+  restart: unless-stopped
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: ante-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_DATABASE: antesocial
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh mongodb://admin:password@localhost:27017/admin --quiet --eval \"db.adminCommand({ ping: 1 }).ok\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ante-network
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: ante-redis
+    restart: unless-stopped
+    command: redis-server --requirepass redispassword
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redispassword", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ante-network
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: ante-zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - ante-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: ante-kafka
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:29092 --list >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+    networks:
+      - ante-network
+
+  auth-service:
+    <<: *app-common
+    build:
+      context: .
+      dockerfile: apps/auth-service/Dockerfile
+    environment:
+      <<: *app-env
+      KAFKA_CLIENT_ID: ante-social-auth-service
+      KAFKA_CONSUMER_GROUP: ante-social-auth-service-consumer
+      AUTH_SERVICE_PORT: 3002
+      AUTH_SERVICE_RPC_PORT: 4002
+    ports:
+      - "3002:3002"
+      - "4002:4002"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - ante-network
+
+  wallet-service:
+    <<: *app-common
+    build:
+      context: .
+      dockerfile: apps/wallet-service/Dockerfile
+    environment:
+      <<: *app-env
+      KAFKA_CLIENT_ID: ante-social-wallet-service
+      KAFKA_CONSUMER_GROUP: ante-social-wallet-service-consumer
+      WALLET_SERVICE_PORT: 3004
+      WALLET_RPC_PORT: 4004
+      DARAJA_CALLBACK_URL: http://api-gateway:3001/api/v1/wallet/mpesa/callback
+      DARAJA_B2C_TIMEOUT_URL: http://api-gateway:3001/api/v1/wallet/mpesa/b2c-timeout
+      DARAJA_B2C_RESULT_URL: http://api-gateway:3001/api/v1/wallet/mpesa/b2c-result
+      NOWPAYMENTS_IPN_URL: http://api-gateway:3001/api/v1/wallet/crypto/ipn
+      NOWPAYMENTS_CALLBACK_URL: http://api-gateway:3001/api/v1/wallet/crypto/callback
+    ports:
+      - "3004:3004"
+      - "4004:4004"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - ante-network
+
+  market-engine:
+    <<: *app-common
+    build:
+      context: .
+      dockerfile: apps/market-engine/Dockerfile
+    environment:
+      <<: *app-env
+      KAFKA_CLIENT_ID: ante-social-market-engine
+      KAFKA_CONSUMER_GROUP: ante-social-market-engine-consumer
+      MARKET_ENGINE_PORT: 3003
+      MARKET_ENGINE_RPC_PORT: 4003
+      WALLET_SERVICE_HOST: wallet-service
+      WALLET_RPC_PORT: 4004
+    ports:
+      - "3003:3003"
+      - "4003:4003"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      wallet-service:
+        condition: service_healthy
+    networks:
+      - ante-network
+
+  notification-service:
+    <<: *app-common
+    build:
+      context: .
+      dockerfile: apps/notification-service/Dockerfile
+    environment:
+      <<: *app-env
+      KAFKA_CLIENT_ID: ante-social-notification-service
+      KAFKA_CONSUMER_GROUP: ante-social-notification-service-consumer
+      NOTIFICATION_SERVICE_PORT: 3005
+      NOTIFICATION_RPC_PORT: 4005
+    ports:
+      - "3005:3005"
+      - "4005:4005"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - ante-network
+
+  websocket-gateway:
+    <<: *app-common
+    build:
+      context: .
+      dockerfile: apps/websocket-gateway/Dockerfile
+    environment:
+      <<: *app-env
+      KAFKA_CLIENT_ID: ante-social-websocket-gateway
+      KAFKA_CONSUMER_GROUP: ante-social-websocket-gateway-consumer
+      WEBSOCKET_GATEWAY_PORT: 3006
+    ports:
+      - "3006:3006"
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - ante-network
+
+  admin-service:
+    <<: *app-common
+    build:
+      context: .
+      dockerfile: apps/admin-service/Dockerfile
+    environment:
+      <<: *app-env
+      KAFKA_CLIENT_ID: ante-social-admin-service
+      KAFKA_CONSUMER_GROUP: ante-social-admin-service-consumer
+      ADMIN_SERVICE_PORT: 3007
+      ADMIN_SERVICE_RPC_PORT: 4007
+      WALLET_SERVICE_HOST: wallet-service
+      WALLET_RPC_PORT: 4004
+    ports:
+      - "3007:3007"
+      - "4007:4007"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      wallet-service:
+        condition: service_healthy
+    networks:
+      - ante-network
+
+  reputation-engine:
+    <<: *app-common
+    build:
+      context: .
+      dockerfile: apps/reputation-engine/Dockerfile
+    environment:
+      <<: *app-env
+      KAFKA_CLIENT_ID: ante-social-reputation-engine
+      KAFKA_CONSUMER_GROUP: ante-social-reputation-engine-consumer
+      REPUTATION_ENGINE_PORT: 3008
+    ports:
+      - "3008:3008"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - ante-network
+
+  api-gateway:
+    <<: *app-common
+    build:
+      context: .
+      dockerfile: apps/api-gateway/Dockerfile
+    environment:
+      <<: *app-env
+      API_GATEWAY_PORT: 3001
+      AUTH_SERVICE_URL: http://auth-service:3002
+      MARKET_SERVICE_URL: http://market-engine:3003
+      WALLET_SERVICE_URL: http://wallet-service:3004
+      NOTIFICATION_SERVICE_URL: http://notification-service:3005
+      ADMIN_SERVICE_URL: http://admin-service:3007
+    ports:
+      - "3001:3001"
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      market-engine:
+        condition: service_healthy
+      wallet-service:
+        condition: service_healthy
+      notification-service:
+        condition: service_healthy
+      admin-service:
+        condition: service_healthy
+    networks:
+      - ante-network
+
+volumes:
+  mongodb_data:
+  redis_data:
+
+networks:
+  ante-network:
+    driver: bridge
