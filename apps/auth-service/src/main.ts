@@ -16,8 +16,10 @@ import compression from 'compression';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
-  app.useLogger(new JsonLogger('auth-service'));
-  const port = configService.get<number>('AUTH_SERVICE_PORT') || 3002;
+  const port =
+    configService.get<number>('PORT') ||
+    configService.get<number>('AUTH_SERVICE_PORT') ||
+    3002;
   const rpcPort =
     configService.get<number>('AUTH_SERVICE_RPC_PORT') || 4002;
   const logger = new Logger('AuthService');

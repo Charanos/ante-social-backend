@@ -8,7 +8,11 @@ import { RateLimitGuard, validateEnv } from '@app/common';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: ['.env.local', '.env.production'],
+      validate: validateEnv,
+    }),
     DatabaseModule,
     KafkaModule,
     AdminModule,

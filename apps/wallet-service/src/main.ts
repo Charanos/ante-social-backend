@@ -16,8 +16,10 @@ import compression from 'compression';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
-  app.useLogger(new JsonLogger('wallet-service'));
-  const port = configService.get<number>('WALLET_SERVICE_PORT') || 3004;
+  const port =
+    configService.get<number>('PORT') ||
+    configService.get<number>('WALLET_SERVICE_PORT') ||
+    3004;
   const rpcPort =
     configService.get<number>('WALLET_RPC_PORT') || 4004;
   const logger = new Logger('WalletService');

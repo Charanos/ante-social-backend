@@ -16,8 +16,10 @@ import compression from 'compression';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
-  app.useLogger(new JsonLogger('market-engine'));
-  const port = configService.get<number>('MARKET_ENGINE_PORT') || 3003;
+  const port =
+    configService.get<number>('PORT') ||
+    configService.get<number>('MARKET_ENGINE_PORT') ||
+    3003;
   const rpcPort =
     configService.get<number>('MARKET_ENGINE_RPC_PORT') || 4003;
   const logger = new Logger('MarketEngine');

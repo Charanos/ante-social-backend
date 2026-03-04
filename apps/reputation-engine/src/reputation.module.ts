@@ -8,7 +8,11 @@ import { ReputationConsumer } from './reputation.consumer';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: ['.env.local', '.env.production'],
+      validate: validateEnv,
+    }),
     DatabaseModule,
   ],
   controllers: [ReputationConsumer],

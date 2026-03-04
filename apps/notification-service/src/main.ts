@@ -20,7 +20,7 @@ async function bootstrap() {
   const logger = new Logger('NotificationService');
   initSentry('notification-service', configService.get<string>('SENTRY_DSN'));
 
-  const httpPort = configService.get<number>('NOTIFICATION_SERVICE_PORT') || 3005;
+  const httpPort = configService.get<number>('PORT') || configService.get<number>('NOTIFICATION_SERVICE_PORT') || 3005;
   const rpcPort =
     configService.get<number>('NOTIFICATION_RPC_PORT') || 4005;
   const kafkaBrokers =

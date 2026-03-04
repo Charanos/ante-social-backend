@@ -21,7 +21,13 @@ function handleProxyError(_err: unknown, _req: unknown, res: any) {
 }
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true, validate: validateEnv })],
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: ['.env.local', '.env.production'],
+      validate: validateEnv,
+    }),
+  ],
   providers: [RequestLoggingMiddleware, RateLimitMiddleware],
 })
 export class AppModule implements NestModule {

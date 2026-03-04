@@ -8,7 +8,11 @@ import { WalletModule } from './wallet/wallet.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: ['.env.local', '.env.production'],
+      validate: validateEnv,
+    }),
     ScheduleModule.forRoot(),
     DatabaseModule,
     WalletModule,

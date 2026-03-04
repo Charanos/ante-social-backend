@@ -17,8 +17,10 @@ import compression from 'compression';
 async function bootstrap() {
   const app = await NestFactory.create(WsModule);
   const configService = app.get(ConfigService);
-  app.useLogger(new JsonLogger('websocket-gateway'));
-  const port = configService.get<number>('WEBSOCKET_GATEWAY_PORT') || 3006;
+  const port =
+    configService.get<number>('PORT') ||
+    configService.get<number>('WEBSOCKET_GATEWAY_PORT') ||
+    3006;
   const logger = new Logger('WebSocketGateway');
   initSentry('websocket-gateway', configService.get<string>('SENTRY_DSN'));
   const kafkaBrokers = (configService.get<string>('KAFKA_BROKERS') || 'localhost:9092')
