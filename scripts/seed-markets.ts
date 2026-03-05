@@ -3,14 +3,14 @@ import * as mongoose from 'mongoose';
 import { UserSchema } from '../libs/database/src/schemas/user.schema';
 import { MarketSchema } from '../libs/database/src/schemas/market.schema';
 
-dotenv.config({ path: '../.env' });
+dotenv.config({ path: '.env.local' });
 
 const MONGODB_URI = process.env.MONGODB_URI || process.env.DATABASE_URL;
 
 type SeedMarket = {
   title: string;
   description: string;
-  betType: 'consensus' | 'reflex' | 'ladder' | 'prisoner_dilemma' | 'syndicate';
+  betType: 'consensus' | 'reflex' | 'ladder' | 'prisoner_dilemma' | 'divergence';
   buyInAmount: number;
   tags: string[];
   outcomes: Array<{ optionText: string }>;
@@ -19,53 +19,69 @@ type SeedMarket = {
 
 const DEFAULT_MARKETS: SeedMarket[] = [
   {
-    title: 'Will BTC close above $110k this week?',
-    description: 'Community market forecasting weekly BTC close against the $110k threshold.',
+    title: 'Will Ethereum cross $4k by the end of the month?',
+    description: 'Community consensus on ETH price movement for the current month.',
     betType: 'consensus',
     buyInAmount: 25,
-    tags: ['crypto', 'btc', 'weekly'],
+    tags: ['crypto', 'eth', 'monthly'],
     outcomes: [{ optionText: 'Yes' }, { optionText: 'No' }],
     mediaUrl:
-      'https://images.unsplash.com/photo-1518546305927-5a555bb7020d?w=1200&auto=format&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1622737133809-d95047b9e673?w=1200&auto=format&fit=crop&q=80',
   },
   {
-    title: 'Which team wins Sunday Night Football?',
-    description: 'Single-game market for SNF winner prediction.',
-    betType: 'consensus',
-    buyInAmount: 10,
-    tags: ['sports', 'nfl', 'snf'],
-    outcomes: [{ optionText: 'Home Team' }, { optionText: 'Away Team' }],
-    mediaUrl:
-      'https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=1200&auto=format&fit=crop&q=80',
-  },
-  {
-    title: 'Reflex: First reaction to market crash headline',
+    title: 'Reflex: Market drops 10% in an hour. Your move?',
     description:
-      'Fast-response reflex market: pick your instinctive reaction to a breaking market crash alert.',
+      'Fast-response reflex market: test your instinct during a sudden market dip.',
     betType: 'reflex',
-    buyInAmount: 5,
-    tags: ['reflex', 'behavioral'],
+    buyInAmount: 10,
+    tags: ['reflex', 'trading'],
     outcomes: [
-      { optionText: 'Buy the dip' },
-      { optionText: 'Sell immediately' },
-      { optionText: 'Wait and watch' },
+      { optionText: 'Panic Sell' },
+      { optionText: 'Buy the Dip' },
+      { optionText: 'HODL' },
     ],
     mediaUrl:
       'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=1200&auto=format&fit=crop&q=80',
   },
   {
-    title: 'Ladder: Rank AI companies by 2026 revenue growth',
-    description: 'Rank the listed companies in the exact order the majority expects.',
+    title: 'Ladder: Top Tech Stocks for 2026',
+    description: 'Rank the following tech giants by expected performance this year.',
     betType: 'ladder',
     buyInAmount: 15,
-    tags: ['ai', 'ladder', 'business'],
+    tags: ['tech', 'stocks', 'ladder'],
     outcomes: [
-      { optionText: 'Company A' },
-      { optionText: 'Company B' },
-      { optionText: 'Company C' },
+      { optionText: 'Nvidia' },
+      { optionText: 'Microsoft' },
+      { optionText: 'Apple' },
     ],
     mediaUrl:
-      'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=1200&auto=format&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=1200&auto=format&fit=crop&q=80',
+  },
+  {
+    title: "Prisoner's Dilemma: The Creator Collab",
+    description: 'Two creators collab. Share profits equally, or try to steal the audience?',
+    betType: 'prisoner_dilemma',
+    buyInAmount: 50,
+    tags: ['social', 'dilemma', 'creators'],
+    outcomes: [
+      { optionText: 'Share (Cooperate)' },
+      { optionText: 'Steal (Betray)' },
+    ],
+    mediaUrl:
+      'https://images.unsplash.com/photo-1611162616305-c69b3fa7fbe0?w=1200&auto=format&fit=crop&q=80',
+  },
+  {
+    title: 'Divergence: The Next Big Social Network',
+    description: 'Which platform will dominate next? Go with the obvious choice or the underdog.',
+    betType: 'divergence',
+    buyInAmount: 20,
+    tags: ['social', 'trends', 'divergence'],
+    outcomes: [
+      { optionText: 'The Established App' },
+      { optionText: 'The Niche Underdog' },
+    ],
+    mediaUrl:
+      'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=1200&auto=format&fit=crop&q=80',
   },
 ];
 

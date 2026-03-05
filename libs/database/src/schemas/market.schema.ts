@@ -53,7 +53,7 @@ export class Market {
   category?: string;
 
   // ─── Betting Configuration ────────────────────
-  @Prop({ required: true, enum: ['consensus', 'reflex', 'ladder', 'prisoner_dilemma', 'betrayal'] })
+  @Prop({ required: true, enum: ['consensus', 'reflex', 'ladder', 'prisoner_dilemma', 'divergence'] })
   betType!: string;
 
   @Prop({ default: 'daily', enum: ['daily', 'weekly'] })
