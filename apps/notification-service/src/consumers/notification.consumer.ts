@@ -77,14 +77,14 @@ export class NotificationConsumer {
     await this.emailService.sendVerificationEmail(payload.email, payload.token);
   }
 
+  // ─── Private handlers ─────────────────────────────────────────────────
+
   private async processUserCreated(data: any, topic: string) {
     await this.withRetryDlq(topic, data, async () => {
       const payload = data.payload || data;
       this.logger.log(`Processing user.created for ${payload.userId}`);
       console.log(`[NotificationConsumer] Processing user.created for user ${payload.userId} (${payload.email})`);
-
       await this.emailService.sendVerificationEmail(payload.email, payload.verificationToken);
-
       await this.inAppService.create(
         payload.userId,
         'Welcome!',
@@ -99,10 +99,7 @@ export class NotificationConsumer {
       const payload = data.payload || data;
       const userId = payload.userId;
       const amount = payload.amount;
-
-      if (!userId) {
-        return;
-      }
+      if (!userId) return;
 
       this.logger.log(`Processing bet.placed for ${userId}`);
       await this.inAppService.create(
@@ -114,16 +111,132 @@ export class NotificationConsumer {
     });
   }
 
+  /**
+   * Handles market lifecycle events.
+   *
+   * Payload shape:
+   * {
+   *   eventType: 'MARKET_SETTLED' | 'MARKET_CREATED' | 'MARKET_DELETED',
+   *   marketId: string,
+   *   marketTitle: string,
+   *   winningOption?: string,        // for MARKET_SETTLED
+   *   participantUserIds?: string[], // optional pre-computed list – skips DB lookup
+   * }
+   */
   private async processMarketEvent(data: any, topic: string) {
     await this.withRetryDlq(topic, data, async () => {
       const payload = data.payload || data;
-      const eventType = payload.eventType || payload.type;
-      this.logger.log(`Processing market event: ${eventType}`);
+      const eventType: string = payload.eventType || payload.type || '';
+      const marketId: string = payload.marketId || '';
+      const marketTitle: string = payload.marketTitle || payload.title || 'a market';
 
-      if (eventType === 'MARKET_SETTLED') {
-        this.logger.log(`Market ${payload.marketId} settled`);
+      this.logger.log(`Processing market event: ${eventType} for market ${marketId}`);
+
+      let notifTitle = '';
+      let notifMessage = '';
+      let notifType = 'market_event';
+      let targetUserIds: string[] = [];
+
+      switch (eventType) {
+        case 'MARKET_SETTLED': {
+          const winningOption: string = payload.winningOption || '';
+          notifTitle = '🏆 Market Settled';
+          notifMessage = winningOption
+            ? `"${marketTitle}" has settled. Winning outcome: ${winningOption}. Check your wallet!`
+            : `"${marketTitle}" has settled. Check your wallet for payouts!`;
+          notifType = 'market_settled';
+          targetUserIds = await this.getMarketParticipants(marketId, payload.participantUserIds);
+          break;
+        }
+        case 'MARKET_CREATED': {
+          notifTitle = '🚀 New Market Available';
+          notifMessage = `A new market just opened: "${marketTitle}". Place your prediction now!`;
+          notifType = 'market_created';
+          targetUserIds = Array.isArray(payload.participantUserIds) ? payload.participantUserIds : [];
+          break;
+        }
+        case 'MARKET_DELETED': {
+          notifTitle = '⚠️ Market Cancelled';
+          notifMessage = `The market "${marketTitle}" has been cancelled. Stakes will be refunded to your wallet.`;
+          notifType = 'market_deleted';
+          targetUserIds = await this.getMarketParticipants(marketId, payload.participantUserIds);
+          break;
+        }
+        default:
+          this.logger.warn(`Unknown market event type received: ${eventType}`);
+          return;
       }
+
+      if (!targetUserIds.length) {
+        this.logger.log(`No participants for market ${marketId} (${eventType}). Skipping dispatch.`);
+        return;
+      }
+
+      this.logger.log(`Notifying ${targetUserIds.length} participants of ${eventType}`);
+
+      const users = await this.userModel
+        .find({ _id: { $in: targetUserIds } })
+        .select('_id email notificationEmail notificationPush fcmTokens')
+        .lean()
+        .exec();
+
+      await Promise.allSettled(
+        users.map(async (user) => {
+          const uid = String(user._id);
+
+          // In-app (always)
+          try {
+            await this.inAppService.create(uid, notifTitle, notifMessage, notifType);
+          } catch (err) {
+            this.logger.warn(`In-app failed for ${uid}: ${err}`);
+          }
+
+          // Email (opt-in)
+          if (user.notificationEmail !== false && user.email) {
+            try {
+              await this.emailService.sendNotificationEmail(user.email, notifTitle, notifMessage);
+            } catch (err) {
+              this.logger.warn(`Email failed for ${uid}: ${err}`);
+            }
+          }
+
+          // FCM push (opt-in)
+          const fcmTokens = (user.fcmTokens || []) as string[];
+          if (user.notificationPush !== false && fcmTokens.length) {
+            try {
+              await this.fcmService.sendPushNotification(fcmTokens, notifTitle, notifMessage, {
+                type: notifType,
+                marketId,
+              });
+            } catch (err) {
+              this.logger.warn(`FCM failed for ${uid}: ${err}`);
+            }
+          }
+        }),
+      );
     });
+  }
+
+  /** Resolves unique participant user IDs from MarketBets or falls back to pre-provided list */
+  private async getMarketParticipants(marketId: string, preComputedIds?: string[]): Promise<string[]> {
+    if (Array.isArray(preComputedIds) && preComputedIds.length) return preComputedIds;
+    if (!marketId) return [];
+    try {
+      const mongoose = await import('mongoose');
+      const MarketBetModel = mongoose.connection.model('MarketBet');
+      const bets = await MarketBetModel.find({
+        marketId: new mongoose.Types.ObjectId(marketId),
+        isCancelled: { $ne: true },
+      })
+        .select('userId')
+        .lean()
+        .exec();
+
+      return [...new Set(bets.map((b: any) => String(b.userId)).filter(Boolean))];
+    } catch (err) {
+      this.logger.warn(`Failed to fetch participants for market ${marketId}: ${err}`);
+      return [];
+    }
   }
 
   private async processWalletTransaction(data: any, topic: string) {

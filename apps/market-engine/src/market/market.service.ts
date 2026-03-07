@@ -106,10 +106,14 @@ export class MarketService {
 
     if (updates.title !== undefined) updateDoc.title = updates.title;
     if (updates.description !== undefined) updateDoc.description = updates.description;
+    if (updates.category !== undefined) updateDoc.category = updates.category;
+    if (updates.isFeatured !== undefined) updateDoc.isFeatured = updates.isFeatured;
+    if (updates.isRecurring !== undefined) updateDoc.isRecurring = updates.isRecurring;
     if (updates.betType !== undefined) {
       updateDoc.betType = (updates.betType as string) === 'syndicate' ? 'betrayal' : updates.betType;
     }
     if (updates.buyInAmount !== undefined) updateDoc.buyInAmount = updates.buyInAmount;
+    if (updates.buyInCurrency !== undefined) updateDoc.buyInCurrency = updates.buyInCurrency;
     if (updates.marketDuration !== undefined) updateDoc.marketDuration = updates.marketDuration;
     if (updates.minParticipants !== undefined) updateDoc.minParticipants = updates.minParticipants;
     if (updates.maxParticipants !== undefined) updateDoc.maxParticipants = updates.maxParticipants;
@@ -124,12 +128,16 @@ export class MarketService {
     if (updates.regionsAllowed !== undefined) updateDoc.regionsAllowed = updates.regionsAllowed;
     if (updates.regionsBlocked !== undefined) updateDoc.regionsBlocked = updates.regionsBlocked;
     if (updates.outcomes !== undefined) {
-      updateDoc.outcomes = updates.outcomes.map((outcome) => ({
-        optionText: outcome.optionText,
-        fixedOdds: outcome.fixedOdds,
-        mediaUrl: outcome.mediaUrl,
-        mediaType: outcome.mediaType || 'none',
-      }));
+      updateDoc.outcomes = updates.outcomes.map((outcome: any) => {
+        const out: any = {
+          optionText: outcome.optionText,
+          fixedOdds: outcome.fixedOdds,
+          mediaUrl: outcome.mediaUrl,
+          mediaType: outcome.mediaType || 'none',
+        };
+        if (outcome.id || outcome._id) out._id = new Types.ObjectId(outcome.id || outcome._id);
+        return out;
+      });
     }
 
     if (updates.startTime !== undefined) {

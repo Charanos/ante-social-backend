@@ -2,7 +2,7 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { ClientProxy, ClientKafka } from '@nestjs/microservices';
-import { lastValueFrom } from 'rxjs';
+import { lastValueFrom, timeout } from 'rxjs';
 import { MarketDocument, MarketBet, MarketBetDocument, User, UserDocument } from '@app/database';
 import { MarketType, MarketStatus, PLATFORM_FEE_RATE, REFLEX_MULTIPLIER_TIERS, KAFKA_TOPICS } from '@app/common';
 import { MarketSettledEvent } from '@app/kafka';
@@ -293,7 +293,7 @@ export class SettlementDispatcher {
           currency: 'KSH',
           description: `Payout from: ${marketTitle}`,
           type: 'bet_payout',
-        })
+        }).pipe(timeout(8000))
       );
     } catch (e: any) {
       this.logger.error(`Failed to credit winner ${userId}: ${e.message}`);

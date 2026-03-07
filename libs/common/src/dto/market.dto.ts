@@ -3,11 +3,11 @@ import {
   IsNotEmpty,
   IsNumber,
   IsOptional,
+  IsBoolean,
   IsEnum,
   IsArray,
   ValidateNested,
   Min,
-  Max,
   IsDateString,
   IsInt,
   ArrayMinSize,
@@ -18,6 +18,14 @@ import { Type } from 'class-transformer';
 import { MarketType, SettlementMethod, OddsType } from '../constants';
 
 export class MarketOutcomeDto {
+  @IsOptional()
+  @IsString()
+  id?: string;
+
+  @IsOptional()
+  @IsString()
+  _id?: string;
+
   @IsString()
   @IsNotEmpty()
   optionText!: string;
@@ -27,7 +35,7 @@ export class MarketOutcomeDto {
   fixedOdds?: number;
 
   @IsOptional()
-  @IsUrl()
+  @IsString()
   mediaUrl?: string;
 
   @IsOptional()
@@ -44,6 +52,18 @@ export class CreateMarketDto {
   @IsNotEmpty()
   description!: string;
 
+  @IsOptional()
+  @IsString()
+  category?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isFeatured?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isRecurring?: boolean;
+
   @IsString()
   @IsIn([...Object.values(MarketType), 'syndicate'])
   betType!: MarketType | 'syndicate';
@@ -51,6 +71,11 @@ export class CreateMarketDto {
   @IsNumber()
   @Min(0.01)
   buyInAmount!: number;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['USD', 'KSH'])
+  buyInCurrency?: string;
 
   @IsDateString()
   closeTime!: string;
@@ -103,7 +128,7 @@ export class CreateMarketDto {
   tags?: string[];
 
   @IsOptional()
-  @IsUrl()
+  @IsString()
   mediaUrl?: string;
 
   @IsOptional()

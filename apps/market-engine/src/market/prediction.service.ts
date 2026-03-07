@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, Inject, NotFoundException } from '@nes
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { ClientProxy, ClientKafka } from '@nestjs/microservices';
-import { lastValueFrom } from 'rxjs';
+import { lastValueFrom, timeout } from 'rxjs';
 import { 
   Market, MarketDocument, 
   MarketBet, MarketBetDocument,
@@ -76,14 +76,14 @@ export class PredictionService {
           currency: 'KSH',
           description: `Prediction on ${market.title}`,
           type: 'bet_placed'
-        })
+        }).pipe(timeout(8000))
       );
       
       if (!debitResult.success) {
         throw new BadRequestException('Wallet debit failed');
       }
     } catch (e: any) {
-      throw new BadRequestException(e.message || 'Insufficient funds');
+      throw new BadRequestException(e.message || 'Insufficient funds or wallet service unavailable');
     }
 
     // 3. Create Bet
@@ -248,7 +248,7 @@ export class PredictionService {
           currency: 'KSH',
           description: 'Prediction cancelled - refund',
           type: 'refund',
-        })
+        }).pipe(timeout(8000))
       );
     } catch (e: any) {
       throw new BadRequestException('Failed to process refund');
@@ -347,7 +347,7 @@ export class PredictionService {
           currency: 'KSH',
           description: `Refund for duplicate placement on ${marketTitle}`,
           type: 'refund',
-        }),
+        }).pipe(timeout(8000)),
       );
     } catch {
       // Best-effort refund path for duplicate placement race conditions.

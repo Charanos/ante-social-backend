@@ -42,6 +42,10 @@ export class Group {
   @Prop({ unique: true, sparse: true })
   inviteCode?: string;
 
+  // Featured market shown on the group page
+  @Prop({ type: Types.ObjectId, ref: 'Market', default: null })
+  featuredMarketId?: Types.ObjectId;
+
   @Prop({ required: true, type: Types.ObjectId, ref: 'User' })
   createdBy!: Types.ObjectId;
 

@@ -52,8 +52,14 @@ export class Market {
   @Prop()
   category?: string;
 
+  @Prop({ default: false })
+  isFeatured!: boolean;
+
+  @Prop({ default: false })
+  isRecurring!: boolean;
+
   // ─── Betting Configuration ────────────────────
-  @Prop({ required: true, enum: ['consensus', 'reflex', 'ladder', 'prisoner_dilemma', 'divergence'] })
+  @Prop({ required: true, enum: ['consensus', 'reflex', 'ladder', 'prisoner_dilemma', 'betrayal', 'divergence'] })
   betType!: string;
 
   @Prop({ default: 'daily', enum: ['daily', 'weekly'] })
@@ -61,6 +67,9 @@ export class Market {
 
   @Prop({ required: true })
   buyInAmount!: number;
+
+  @Prop({ default: 'USD', enum: ['USD', 'KSH'] })
+  buyInCurrency!: string;
 
   @Prop({ default: 2 })
   minParticipants!: number;

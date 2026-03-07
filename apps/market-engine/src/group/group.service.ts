@@ -3,7 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Group, GroupDocument, GroupBet, GroupBetDocument, User, UserDocument } from '@app/database';
 import { ClientProxy, ClientKafka } from '@nestjs/microservices';
-import { lastValueFrom } from 'rxjs';
+import { lastValueFrom, timeout } from 'rxjs';
 import { PLATFORM_FEE_RATE } from '@app/common';
 
 @Injectable()
@@ -354,7 +354,7 @@ export class GroupService {
           currency: 'KSH',
           description,
           type: 'bet_placed',
-        }),
+        }).pipe(timeout(8000)),
       );
     } catch (e: any) {
       this.logger.error(`Wallet debit failed for ${userId}: ${e.message}`);
@@ -381,7 +381,7 @@ export class GroupService {
             currency: 'KSH',
             description: `Group Bet Win: ${bet.title}`,
             type: 'bet_payout',
-          }),
+          }).pipe(timeout(8000)),
         );
       }
     }
