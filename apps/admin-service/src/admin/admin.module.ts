@@ -6,6 +6,7 @@ import { ComplianceService } from '../compliance/compliance.service';
 import { DatabaseModule } from '@app/database';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { ConfigService } from '@nestjs/config';
+import { WithdrawalAutomationScheduler } from './withdrawal-automation.scheduler';
 
 @Module({
   imports: [
@@ -28,6 +29,6 @@ import { ConfigService } from '@nestjs/config';
     ]),
   ],
   controllers: [AdminController, PublicController],
-  providers: [AdminService, AnalyticsService, ComplianceService],
+  providers: [AdminService, AnalyticsService, ComplianceService, WithdrawalAutomationScheduler],
 })
 export class AdminModule {}

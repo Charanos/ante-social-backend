@@ -140,7 +140,7 @@ export class NotificationConsumer {
       switch (eventType) {
         case 'MARKET_SETTLED': {
           const winningOption: string = payload.winningOption || '';
-          notifTitle = '🏆 Market Settled';
+          notifTitle = 'Market Settled';
           notifMessage = winningOption
             ? `"${marketTitle}" has settled. Winning outcome: ${winningOption}. Check your wallet!`
             : `"${marketTitle}" has settled. Check your wallet for payouts!`;
@@ -149,14 +149,14 @@ export class NotificationConsumer {
           break;
         }
         case 'MARKET_CREATED': {
-          notifTitle = '🚀 New Market Available';
+          notifTitle = 'New Market Available';
           notifMessage = `A new market just opened: "${marketTitle}". Place your prediction now!`;
           notifType = 'market_created';
           targetUserIds = Array.isArray(payload.participantUserIds) ? payload.participantUserIds : [];
           break;
         }
         case 'MARKET_DELETED': {
-          notifTitle = '⚠️ Market Cancelled';
+          notifTitle = 'Market Cancelled';
           notifMessage = `The market "${marketTitle}" has been cancelled. Stakes will be refunded to your wallet.`;
           notifType = 'market_deleted';
           targetUserIds = await this.getMarketParticipants(marketId, payload.participantUserIds);

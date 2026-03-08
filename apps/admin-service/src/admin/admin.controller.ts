@@ -164,6 +164,26 @@ export class AdminController {
     return this.adminService.rejectWithdrawal(id, reason, admin._id.toString());
   }
 
+  @Post('withdrawals/auto-process')
+  async autoProcessWithdrawals(
+    @CurrentUser() admin: UserDocument,
+    @Body('limit') limit?: number,
+    @Body('autoApproveAmount') autoApproveAmount?: number,
+    @Body('requireVerifiedForApproval') requireVerifiedForApproval?: boolean,
+    @Body('rejectFlagged') rejectFlagged?: boolean,
+    @Body('rejectBanned') rejectBanned?: boolean,
+    @Body('rejectUnverified') rejectUnverified?: boolean,
+  ) {
+    return this.adminService.autoProcessWithdrawals(admin._id.toString(), {
+      limit,
+      autoApproveAmount,
+      requireVerifiedForApproval,
+      rejectFlagged,
+      rejectBanned,
+      rejectUnverified,
+    });
+  }
+
   @Get('markets/recurring')
   async getRecurringMarkets(@Query('limit') limit = 20, @Query('offset') offset = 0) {
     return this.adminService.getRecurringMarketTemplates(Number(limit), Number(offset));

@@ -5,6 +5,7 @@ import { KafkaModule } from '@app/kafka';
 import { AdminModule } from './admin/admin.module';
 import { APP_GUARD } from '@nestjs/core';
 import { RateLimitGuard, validateEnv } from '@app/common';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { RateLimitGuard, validateEnv } from '@app/common';
     }),
     DatabaseModule,
     KafkaModule,
+    ScheduleModule.forRoot(),
     AdminModule,
   ],
   providers: [

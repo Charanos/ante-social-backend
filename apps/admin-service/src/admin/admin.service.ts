@@ -31,9 +31,9 @@ import {
   LandingPage,
   LandingPageDocument,
 } from '@app/database';
-import { TransactionType, TransactionStatus, KAFKA_TOPICS } from '@app/common';
+import { TransactionType, TransactionStatus, KAFKA_TOPICS, UserTier } from '@app/common';
 import { ClientKafka, ClientProxy } from '@nestjs/microservices';
-import { lastValueFrom } from 'rxjs';
+import { lastValueFrom, timeout } from 'rxjs';
 import { ComplianceFlagEvent } from '@app/kafka';
 
 type MaintenanceTaskId =
@@ -49,6 +49,15 @@ type MaintenanceTaskDescriptor = {
   title: string;
   description: string;
   destructive: boolean;
+};
+
+type WithdrawalAutomationOptions = {
+  limit?: number;
+  autoApproveAmount?: number;
+  requireVerifiedForApproval?: boolean;
+  rejectFlagged?: boolean;
+  rejectBanned?: boolean;
+  rejectUnverified?: boolean;
 };
 
 @Injectable()
@@ -257,21 +266,30 @@ export class AdminService {
     }
 
     // Validate tier value
-    const validTiers = ['novice', 'high_roller', 'whale', 'legend'];
-    if (!validTiers.includes(tier)) {
+    const requestedTier = String(tier || '')
+      .trim()
+      .toLowerCase();
+    const validTiers = new Set<UserTier>([
+      UserTier.NOVICE,
+      UserTier.ANALYST,
+      UserTier.STRATEGIST,
+      UserTier.HIGH_ROLLER,
+    ]);
+    if (!validTiers.has(requestedTier as UserTier)) {
       throw new BadRequestException('Invalid tier value');
     }
+    const nextTier = requestedTier as UserTier;
 
     try {
       const user = await this.userModel.findByIdAndUpdate(
         userId, 
-        { tier }, 
+        { tier: nextTier }, 
         { new: true }
       ).exec();
       
       if (!user) throw new NotFoundException('User not found');
 
-      await this.logAudit('TIER_UPDATE', userId, { adminId, newTier: tier, entityType: 'user' });
+      await this.logAudit('TIER_UPDATE', userId, { adminId, newTier: nextTier, entityType: 'user' });
       return { success: true, tier: user.tier };
     } catch (error: any) {
       this.logger.error(`Error updating user tier for ${userId}: ${error.message}`, error.stack);
@@ -545,7 +563,7 @@ export class AdminService {
 
     try {
       const rpcResult = await lastValueFrom(
-        this.walletClient.send('approve_withdrawal', { transactionId }),
+        this.walletClient.send('approve_withdrawal', { transactionId, adminId }).pipe(timeout(8000)),
       );
 
       if (!rpcResult?.success) {
@@ -581,7 +599,7 @@ export class AdminService {
 
     try {
       const rpcResult = await lastValueFrom(
-        this.walletClient.send('reject_withdrawal', { transactionId, reason }),
+        this.walletClient.send('reject_withdrawal', { transactionId, reason, adminId }).pipe(timeout(8000)),
       );
 
       if (!rpcResult?.success) {
@@ -605,6 +623,203 @@ export class AdminService {
       this.logger.error(`Error rejecting withdrawal ${transactionId}: ${error.message}`, error.stack);
       throw error;
     }
+  }
+
+  async autoProcessWithdrawals(adminId: string, options: WithdrawalAutomationOptions = {}) {
+    const safeLimit = Math.min(Math.max(Number(options.limit) || 50, 1), 500);
+    const autoApproveAmount = Math.max(Number(options.autoApproveAmount) || 1000, 0);
+    const requireVerifiedForApproval = options.requireVerifiedForApproval !== false;
+    const rejectFlagged = options.rejectFlagged !== false;
+    const rejectBanned = options.rejectBanned !== false;
+    const rejectUnverified = Boolean(options.rejectUnverified);
+
+    const pendingWithdrawals = await this.transactionModel
+      .find({
+        type: TransactionType.WITHDRAWAL,
+        status: TransactionStatus.PENDING,
+      })
+      .sort({ createdAt: 1 })
+      .limit(safeLimit)
+      .populate('userId', '_id username email tier isVerified isFlagged isBanned')
+      .exec();
+
+    const actions: Array<{
+      transactionId: string;
+      action: 'approved' | 'rejected' | 'skipped';
+      reason?: string;
+      userId?: string;
+      amount?: number;
+    }> = [];
+
+    let approved = 0;
+    let rejected = 0;
+    let skipped = 0;
+
+    for (const tx of pendingWithdrawals) {
+      const transactionId = tx._id.toString();
+      const user = tx.userId as any;
+      const userId = user?._id?.toString?.() || '';
+      const amount = Number(tx.amount || 0);
+
+      try {
+        if (!userId) {
+          skipped += 1;
+          actions.push({
+            transactionId,
+            action: 'skipped',
+            reason: 'Missing user reference',
+            amount,
+          });
+          continue;
+        }
+
+        if (rejectBanned && Boolean(user?.isBanned)) {
+          await this.rejectWithdrawal(
+            transactionId,
+            'Auto-rejected: account is suspended.',
+            adminId,
+          );
+          rejected += 1;
+          actions.push({
+            transactionId,
+            action: 'rejected',
+            reason: 'User is suspended',
+            userId,
+            amount,
+          });
+          continue;
+        }
+
+        if (rejectFlagged && Boolean(user?.isFlagged)) {
+          await this.rejectWithdrawal(
+            transactionId,
+            'Auto-rejected: account is flagged for compliance review.',
+            adminId,
+          );
+          rejected += 1;
+          actions.push({
+            transactionId,
+            action: 'rejected',
+            reason: 'User is flagged',
+            userId,
+            amount,
+          });
+          continue;
+        }
+
+        if (rejectUnverified && !Boolean(user?.isVerified)) {
+          await this.rejectWithdrawal(
+            transactionId,
+            'Auto-rejected: account is not verified.',
+            adminId,
+          );
+          rejected += 1;
+          actions.push({
+            transactionId,
+            action: 'rejected',
+            reason: 'User is unverified',
+            userId,
+            amount,
+          });
+          continue;
+        }
+
+        if (requireVerifiedForApproval && !Boolean(user?.isVerified)) {
+          skipped += 1;
+          actions.push({
+            transactionId,
+            action: 'skipped',
+            reason: 'Awaiting verification',
+            userId,
+            amount,
+          });
+          continue;
+        }
+
+        if (!Number.isFinite(amount) || amount <= 0) {
+          await this.rejectWithdrawal(
+            transactionId,
+            'Auto-rejected: invalid withdrawal amount.',
+            adminId,
+          );
+          rejected += 1;
+          actions.push({
+            transactionId,
+            action: 'rejected',
+            reason: 'Invalid amount',
+            userId,
+            amount,
+          });
+          continue;
+        }
+
+        if (amount <= autoApproveAmount) {
+          await this.approveWithdrawal(transactionId, adminId);
+          approved += 1;
+          actions.push({
+            transactionId,
+            action: 'approved',
+            userId,
+            amount,
+          });
+          continue;
+        }
+
+        skipped += 1;
+        actions.push({
+          transactionId,
+          action: 'skipped',
+          reason: `Amount exceeds auto-approve threshold (${autoApproveAmount})`,
+          userId,
+          amount,
+        });
+      } catch (error: any) {
+        skipped += 1;
+        actions.push({
+          transactionId,
+          action: 'skipped',
+          reason: error?.message || 'Automation error',
+          userId,
+          amount,
+        });
+      }
+    }
+
+    await this.logAudit('AUTO_PROCESS_WITHDRAWALS', adminId, {
+      adminId,
+      totalScanned: pendingWithdrawals.length,
+      approved,
+      rejected,
+      skipped,
+      settings: {
+        limit: safeLimit,
+        autoApproveAmount,
+        requireVerifiedForApproval,
+        rejectFlagged,
+        rejectBanned,
+        rejectUnverified,
+      },
+      entityType: 'transaction',
+    });
+
+    return {
+      success: true,
+      summary: {
+        totalScanned: pendingWithdrawals.length,
+        approved,
+        rejected,
+        skipped,
+      },
+      settings: {
+        limit: safeLimit,
+        autoApproveAmount,
+        requireVerifiedForApproval,
+        rejectFlagged,
+        rejectBanned,
+        rejectUnverified,
+      },
+      actions,
+    };
   }
 
   // ═══════════════════════════════════════════════════════════════════════

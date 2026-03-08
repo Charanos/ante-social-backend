@@ -3,7 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Market, MarketDocument } from '@app/database';
-import { MarketStatus } from '@app/common';
+import { MarketStatus, USER_TIER_RANK, normalizeUserTier } from '@app/common';
 import { MarketService } from '../market/market.service';
 
 @Injectable()
@@ -24,7 +24,7 @@ export class MarketCloseScheduler {
         status: MarketStatus.ACTIVE,
         closeTime: { $lte: now },
       })
-      .select('_id')
+      .select('_id minimumTier')
       .lean()
       .exec();
 
@@ -32,8 +32,14 @@ export class MarketCloseScheduler {
       return;
     }
 
+    const prioritizedMarkets = [...marketsToClose].sort((left: any, right: any) => {
+      const leftRank = USER_TIER_RANK[normalizeUserTier(left?.minimumTier)] ?? 0;
+      const rightRank = USER_TIER_RANK[normalizeUserTier(right?.minimumTier)] ?? 0;
+      return rightRank - leftRank;
+    });
+
     let settledCount = 0;
-    for (const market of marketsToClose) {
+    for (const market of prioritizedMarkets) {
       try {
         await this.marketService.closeMarket(market._id.toString());
         await this.marketService.settleMarket(market._id.toString());

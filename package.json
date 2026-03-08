@@ -32,7 +32,8 @@
     "test:e2e": "node --test --require ts-node/register --require tsconfig-paths/register tests/e2e/**/*.e2e-spec.ts",
     "seed:admin": "ts-node -r tsconfig-paths/register scripts/seed-admin.ts",
     "seed:markets": "ts-node -r tsconfig-paths/register scripts/seed-markets.ts",
-    "seed:all": "npm run seed:admin && npm run seed:markets",
+    "seed:groups": "ts-node -r tsconfig-paths/register scripts/seed-groups.ts",
+    "seed:all": "npm run seed:admin && npm run seed:markets && npm run seed:groups",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f"

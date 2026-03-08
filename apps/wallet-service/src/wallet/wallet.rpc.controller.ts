@@ -51,9 +51,9 @@ export class WalletRpcController {
   }
 
   @MessagePattern('approve_withdrawal')
-  async approveWithdrawal(@Payload() payload: { transactionId: string }) {
+  async approveWithdrawal(@Payload() payload: { transactionId: string; adminId?: string }) {
     try {
-      const tx = await this.walletService.approveWithdrawal(payload.transactionId);
+      const tx = await this.walletService.approveWithdrawal(payload.transactionId, payload.adminId);
       return { success: true, data: tx };
     } catch (error: any) {
       this.logger.error(`approve_withdrawal failed: ${error?.message || 'unknown error'}`);
@@ -62,9 +62,13 @@ export class WalletRpcController {
   }
 
   @MessagePattern('reject_withdrawal')
-  async rejectWithdrawal(@Payload() payload: { transactionId: string }) {
+  async rejectWithdrawal(@Payload() payload: { transactionId: string; reason?: string; adminId?: string }) {
     try {
-      const tx = await this.walletService.rejectWithdrawal(payload.transactionId);
+      const tx = await this.walletService.rejectWithdrawal(
+        payload.transactionId,
+        payload.reason,
+        payload.adminId,
+      );
       return { success: true, data: tx };
     } catch (error: any) {
       this.logger.error(`reject_withdrawal failed: ${error?.message || 'unknown error'}`);

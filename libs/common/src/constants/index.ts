@@ -50,6 +50,8 @@ export enum TransactionStatus {
 
 export enum UserTier {
   NOVICE = 'novice',
+  ANALYST = 'analyst',
+  STRATEGIST = 'strategist',
   HIGH_ROLLER = 'high_roller',
 }
 
@@ -102,11 +104,53 @@ export const DAILY_LIMITS = {
     deposit: 500,
     withdrawal: 200,
   },
+  [UserTier.ANALYST]: {
+    deposit: 1500,
+    withdrawal: 600,
+  },
+  [UserTier.STRATEGIST]: {
+    deposit: 3000,
+    withdrawal: 1200,
+  },
   [UserTier.HIGH_ROLLER]: {
     deposit: 5000,
     withdrawal: 2000,
   },
 } as const;
+
+export const USER_TIER_ORDER = [
+  UserTier.NOVICE,
+  UserTier.ANALYST,
+  UserTier.STRATEGIST,
+  UserTier.HIGH_ROLLER,
+] as const;
+
+export const USER_TIER_RANK: Record<UserTier, number> = {
+  [UserTier.NOVICE]: 0,
+  [UserTier.ANALYST]: 1,
+  [UserTier.STRATEGIST]: 2,
+  [UserTier.HIGH_ROLLER]: 3,
+};
+
+export function normalizeUserTier(value: unknown): UserTier {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === UserTier.HIGH_ROLLER || raw === 'whale' || raw === 'legend') {
+    return UserTier.HIGH_ROLLER;
+  }
+  if (raw === UserTier.STRATEGIST || raw === 'oracle' || raw === 'expert') {
+    return UserTier.STRATEGIST;
+  }
+  if (raw === UserTier.ANALYST || raw === 'prognosticator' || raw === 'pro') {
+    return UserTier.ANALYST;
+  }
+  return UserTier.NOVICE;
+}
+
+export function isTierAtLeast(currentTier: unknown, requiredTier: unknown): boolean {
+  const current = normalizeUserTier(currentTier);
+  const required = normalizeUserTier(requiredTier);
+  return USER_TIER_RANK[current] >= USER_TIER_RANK[required];
+}
 
 export const RATE_LIMITS = {
   auth: { ttl: 60, limit: 5 },       // 5 login attempts per minute

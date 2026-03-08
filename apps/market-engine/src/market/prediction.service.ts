@@ -3,13 +3,22 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { ClientProxy, ClientKafka } from '@nestjs/microservices';
 import { lastValueFrom, timeout } from 'rxjs';
-import { 
+import {
   Market, MarketDocument, 
   MarketBet, MarketBetDocument,
   User,
   UserDocument,
 } from '@app/database';
-import { DAILY_LIMITS, KAFKA_TOPICS, MarketStatus, MarketType, PlacePredictionDto, UserTier } from '@app/common';
+import {
+  DAILY_LIMITS,
+  KAFKA_TOPICS,
+  MarketStatus,
+  MarketType,
+  PlacePredictionDto,
+  UserTier,
+  isTierAtLeast,
+  normalizeUserTier,
+} from '@app/common';
 import { BetPlacedEvent, BetEditedEvent, BetCancelledEvent } from '@app/kafka';
 
 @Injectable()
@@ -24,8 +33,9 @@ export class PredictionService {
 
   async placePrediction(userId: string, dto: PlacePredictionDto) {
     // 1. Validate Market
-    const market = await this.marketModel.findById(dto.marketId);
+    const market = await this.findMarketByIdentifier(dto.marketId);
     if (!market) throw new NotFoundException('Market not found');
+    const resolvedMarketId = market._id.toString();
     
     if (market.status !== MarketStatus.ACTIVE) {
       throw new BadRequestException('Market is not active');
@@ -33,6 +43,15 @@ export class PredictionService {
     
     if (new Date() > market.closeTime) {
       throw new BadRequestException('Market is closed');
+    }
+
+    const tierRecord = await this.userModel.findById(userId).select('tier').lean().exec();
+    const userTier = normalizeUserTier(tierRecord?.tier);
+    const requiredTier = normalizeUserTier((market as any).minimumTier || UserTier.NOVICE);
+    if (!isTierAtLeast(userTier, requiredTier)) {
+      throw new BadRequestException(
+        `This market is exclusive to ${requiredTier.replace('_', ' ')} tier and above`,
+      );
     }
 
     const selectedOutcomeId = dto.outcomeId || dto.rankedOutcomeIds?.[0];
@@ -56,10 +75,10 @@ export class PredictionService {
       }
     }
 
-    await this.enforceDailyBetLimit(userId, dto.amount);
+    await this.enforceDailyBetLimit(userId, dto.amount, userTier);
 
     const existingActiveBet = await this.betModel.findOne({
-      marketId: new Types.ObjectId(dto.marketId),
+      marketId: new Types.ObjectId(resolvedMarketId),
       userId: new Types.ObjectId(userId),
       isCancelled: { $ne: true },
     });
@@ -88,7 +107,7 @@ export class PredictionService {
 
     // 3. Create Bet
     const prediction = new this.betModel({
-      marketId: new Types.ObjectId(dto.marketId),
+      marketId: new Types.ObjectId(resolvedMarketId),
       userId: new Types.ObjectId(userId),
       selectedOutcomeId: new Types.ObjectId(selectedOutcomeId),
       rankedOutcomeIds: (dto.rankedOutcomeIds || []).map((outcomeId) => new Types.ObjectId(outcomeId)),
@@ -107,7 +126,7 @@ export class PredictionService {
     }
 
     // 4. Update Market Stats
-    await this.marketModel.findByIdAndUpdate(dto.marketId, {
+    await this.marketModel.findByIdAndUpdate(resolvedMarketId, {
       $inc: { 
         totalPool: dto.amount,
         participantCount: 1,
@@ -123,7 +142,7 @@ export class PredictionService {
       KAFKA_TOPICS.BET_PLACEMENTS,
       new BetPlacedEvent({
         betId: prediction._id.toString(),
-        marketId: dto.marketId,
+        marketId: resolvedMarketId,
         userId,
         amount: dto.amount,
         outcomeId: selectedOutcomeId,
@@ -302,15 +321,23 @@ export class PredictionService {
     };
   }
 
-  private async enforceDailyBetLimit(userId: string, requestedAmount: number) {
-    const user = await this.userModel
-      .findById(userId)
-      .select('tier')
-      .lean()
-      .exec();
-
-    const tier = (user?.tier as UserTier | undefined) || UserTier.NOVICE;
-    const dailyBetLimit = DAILY_LIMITS[tier]?.deposit || DAILY_LIMITS[UserTier.NOVICE].deposit;
+  private async enforceDailyBetLimit(
+    userId: string,
+    requestedAmount: number,
+    tierHint?: UserTier,
+  ) {
+    let tier = tierHint;
+    if (!tier) {
+      const user = await this.userModel
+        .findById(userId)
+        .select('tier')
+        .lean()
+        .exec();
+      tier = normalizeUserTier(user?.tier);
+    }
+    const normalizedTier = tier || UserTier.NOVICE;
+    const dailyBetLimit =
+      DAILY_LIMITS[normalizedTier]?.deposit || DAILY_LIMITS[UserTier.NOVICE].deposit;
     const startOfDay = new Date();
     startOfDay.setUTCHours(0, 0, 0, 0);
 
@@ -352,5 +379,26 @@ export class PredictionService {
     } catch {
       // Best-effort refund path for duplicate placement race conditions.
     }
+  }
+
+  private normalizeIdentifier(value: string) {
+    try {
+      return decodeURIComponent(String(value || '').trim()).toLowerCase();
+    } catch {
+      return String(value || '').trim().toLowerCase();
+    }
+  }
+
+  private async findMarketByIdentifier(identifier: string) {
+    const normalized = this.normalizeIdentifier(identifier);
+    return this.marketModel
+      .findOne({
+        isDeleted: { $ne: true },
+        $or: [
+          ...(Types.ObjectId.isValid(normalized) ? [{ _id: new Types.ObjectId(normalized) }] : []),
+          { slug: normalized },
+        ],
+      })
+      .exec();
   }
 }

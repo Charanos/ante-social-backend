@@ -4,7 +4,7 @@ import { Model, Types } from 'mongoose';
 import { Group, GroupDocument, GroupBet, GroupBetDocument, User, UserDocument } from '@app/database';
 import { ClientProxy, ClientKafka } from '@nestjs/microservices';
 import { lastValueFrom, timeout } from 'rxjs';
-import { PLATFORM_FEE_RATE } from '@app/common';
+import { KAFKA_TOPICS, PLATFORM_FEE_RATE } from '@app/common';
 
 @Injectable()
 export class GroupService {
@@ -20,8 +20,10 @@ export class GroupService {
 
   // Group management
   async createGroup(data: { name: string; description?: string; isPublic?: boolean }, userId: string) {
+    const slug = await this.ensureUniqueGroupSlug(data?.name);
     const group = new this.groupModel({
       ...data,
+      slug,
       createdBy: userId,
       members: [{ userId, role: 'admin', joinedAt: new Date() }],
       memberCount: 1,
@@ -29,6 +31,13 @@ export class GroupService {
     await group.save();
 
     await this.userModel.findByIdAndUpdate(userId, { $inc: { groupMemberships: 1 } });
+    this.dispatchNotification(
+      userId,
+      'Group Created',
+      `Your group "${group.name}" is ready.`,
+      'group_created',
+      ['in_app'],
+    );
     this.logger.log(`Group created: ${group.name} by ${userId}`);
     return group;
   }
@@ -48,13 +57,13 @@ export class GroupService {
   }
 
   async getGroup(id: string) {
-    const group = await this.groupModel.findById(id).populate('members.userId', 'username avatarUrl');
+    const group = await this.findGroupByIdentifier(id, true);
     if (!group) throw new NotFoundException('Group not found');
     return group;
   }
 
   async joinGroup(groupId: string, userId: string, inviteCode?: string) {
-    const group = await this.groupModel.findById(groupId);
+    const group = await this.findGroupByIdentifier(groupId);
     if (!group) throw new NotFoundException('Group not found');
 
     if (!group.isPublic) {
@@ -77,11 +86,29 @@ export class GroupService {
     await group.save();
 
     await this.userModel.findByIdAndUpdate(userId, { $inc: { groupMemberships: 1 } });
+    this.dispatchNotification(
+      userId,
+      'Joined Group',
+      `You joined "${group.name}".`,
+      'group_joined',
+      ['in_app'],
+    );
+    const adminIds = group.members
+      .filter((member) => member.role === 'admin')
+      .map((member) => member.userId.toString());
+    this.notifyMany(
+      adminIds,
+      `${group.name}: New Member`,
+      'A new member joined your group.',
+      'group_member_joined',
+      userId,
+      ['in_app', 'push'],
+    );
     return group;
   }
 
   async leaveGroup(groupId: string, userId: string) {
-    const group = await this.groupModel.findById(groupId);
+    const group = await this.findGroupByIdentifier(groupId);
     if (!group) throw new NotFoundException('Group not found');
 
     group.members = group.members.filter((member) => member.userId.toString() !== userId);
@@ -89,11 +116,18 @@ export class GroupService {
     await group.save();
 
     await this.userModel.findByIdAndUpdate(userId, { $inc: { groupMemberships: -1 } });
+    this.dispatchNotification(
+      userId,
+      'Left Group',
+      `You left "${group.name}".`,
+      'group_left',
+      ['in_app'],
+    );
     return group;
   }
 
   async createInvite(groupId: string, actorId: string, invitee?: string) {
-    const group = await this.groupModel.findById(groupId);
+    const group = await this.findGroupByIdentifier(groupId);
     if (!group) throw new NotFoundException('Group not found');
 
     const actorMembership = group.members.some((member) => member.userId.toString() === actorId);
@@ -123,6 +157,13 @@ export class GroupService {
           username: inviteeRecord.username,
           email: inviteeRecord.email,
         };
+        this.dispatchNotification(
+          inviteeUser.id,
+          `${group.name} Invitation`,
+          `You were invited to join "${group.name}".`,
+          'group_invite',
+          ['in_app', 'email', 'push'],
+        );
       }
     }
 
@@ -130,7 +171,7 @@ export class GroupService {
       groupId: group._id.toString(),
       inviteCode: group.inviteCode,
       invitee: inviteeUser,
-      invitePath: `/dashboard/groups/${group._id.toString()}?invite=${group.inviteCode}`,
+      invitePath: `/dashboard/groups/${group.slug || group._id.toString()}?invite=${group.inviteCode}`,
     };
   }
 
@@ -145,7 +186,7 @@ export class GroupService {
     },
     actorId: string,
   ) {
-    const group = await this.groupModel.findById(groupId);
+    const group = await this.findGroupByIdentifier(groupId);
     if (!group) throw new NotFoundException('Group not found');
 
     const actorMember = group.members.find((member) => member.userId.toString() === actorId);
@@ -159,6 +200,7 @@ export class GroupService {
       const trimmed = String(updates.name || '').trim();
       if (!trimmed) throw new BadRequestException('Group name cannot be empty');
       group.name = trimmed;
+      group.slug = await this.ensureUniqueGroupSlug(trimmed, group._id.toString());
     }
     if (updates.description !== undefined) {
       const nextDescription = String(updates.description || '').trim();
@@ -181,7 +223,7 @@ export class GroupService {
   }
 
   async updateMemberRole(groupId: string, memberId: string, role: string, actorId: string) {
-    const group = await this.groupModel.findById(groupId);
+    const group = await this.findGroupByIdentifier(groupId);
     if (!group) throw new NotFoundException('Group not found');
 
     const normalizedRole = String(role || '').toLowerCase();
@@ -205,11 +247,18 @@ export class GroupService {
 
     target.role = normalizedRole;
     await group.save();
+    this.dispatchNotification(
+      memberId,
+      'Group Role Updated',
+      `Your role in "${group.name}" is now ${normalizedRole}.`,
+      'group_role_updated',
+      ['in_app', 'push'],
+    );
     return group;
   }
 
   async removeMember(groupId: string, memberId: string, actorId: string) {
-    const group = await this.groupModel.findById(groupId);
+    const group = await this.findGroupByIdentifier(groupId);
     if (!group) throw new NotFoundException('Group not found');
 
     const actorMember = group.members.find((member) => member.userId.toString() === actorId);
@@ -232,22 +281,65 @@ export class GroupService {
     group.memberCount = Math.max(0, group.memberCount - 1);
     await group.save();
     await this.userModel.findByIdAndUpdate(memberId, { $inc: { groupMemberships: -1 } });
+    this.dispatchNotification(
+      memberId,
+      'Removed From Group',
+      `You were removed from "${group.name}".`,
+      'group_member_removed',
+      ['in_app', 'push'],
+    );
     return group;
   }
 
   // Group bets
   async createGroupBet(groupId: string, data: any, userId: string) {
-    const group = await this.groupModel.findById(groupId);
+    const group = await this.findGroupByIdentifier(groupId);
     if (!group) throw new NotFoundException('Group not found');
 
+    const actorMember = group.members.find((member) => member.userId.toString() === userId);
+    const isOwner = group.createdBy.toString() === userId;
+    const canCreate = isOwner || actorMember?.role === 'admin' || actorMember?.role === 'moderator';
+    if (!canCreate) {
+      throw new BadRequestException('Not authorized to create group markets');
+    }
+
+    const marketType = String(data.marketType || '').toLowerCase();
+    if (!['winner_takes_all', 'odd_one_out'].includes(marketType)) {
+      throw new BadRequestException('Invalid group market type');
+    }
+
+    const subtype = String(data.marketSubtype || data.type || 'poll').toLowerCase();
+    const validSubtypes = ['poll', 'betrayal', 'reflex', 'ladder', 'divergence'];
+    const marketSubtype = validSubtypes.includes(subtype) ? subtype : 'poll';
+    const title = String(data.title || '').trim();
+    if (!title) {
+      throw new BadRequestException('title is required');
+    }
+    const betSlug = await this.ensureUniqueGroupBetSlug(group._id.toString(), title);
+
+    const normalizedOptions = Array.isArray(data.options)
+      ? data.options
+          .map((option: unknown) => String(option || '').trim())
+          .filter(Boolean)
+      : [];
+    const buyInAmount = Number(data.buyInAmount || 0);
+    if (!Number.isFinite(buyInAmount) || buyInAmount <= 0) {
+      throw new BadRequestException('buyInAmount must be greater than 0');
+    }
+    if (marketType === 'odd_one_out' && normalizedOptions.length < 3) {
+      throw new BadRequestException('Odd-one-out markets require at least 3 options');
+    }
+
     const bet = new this.groupBetModel({
-      groupId,
+      groupId: group._id,
       createdBy: userId,
-      title: data.title,
-      description: data.description,
-      marketType: data.marketType,
-      buyInAmount: data.buyInAmount,
-      options: data.options || [],
+      title,
+      slug: betSlug,
+      description: String(data.description || '').trim(),
+      marketType,
+      marketSubtype,
+      buyInAmount,
+      options: normalizedOptions,
       participants: [],
       status: 'active',
     });
@@ -258,13 +350,23 @@ export class GroupService {
     group.activeBetsCount += 1;
     group.totalBets += 1;
     await group.save();
+    this.notifyMany(
+      this.getMemberIds(group),
+      `${group.name}: New Market`,
+      `A new group market "${bet.title}" is now live.`,
+      'group_market_created',
+      userId,
+      ['in_app', 'push'],
+    );
 
     return bet;
   }
 
   async getGroupBets(groupId: string) {
+    const group = await this.findGroupByIdentifier(groupId);
+    if (!group) throw new NotFoundException('Group not found');
     return this.groupBetModel
-      .find({ groupId })
+      .find({ groupId: group._id })
       .sort({ createdAt: -1 })
       .populate('participants.userId', 'username avatarUrl');
   }
@@ -277,6 +379,20 @@ export class GroupService {
     const amount = bet.buyInAmount;
     await this.debitWallet(userId, amount, `Join Group Bet: ${bet.title}`);
     await this.joinBetInternal(bet, userId, selectedOption);
+    this.dispatchNotification(
+      userId,
+      'Group Market Joined',
+      `You joined "${bet.title}".`,
+      'group_market_joined',
+      ['in_app'],
+    );
+    this.dispatchNotification(
+      bet.createdBy.toString(),
+      'New Group Prediction',
+      `A participant joined "${bet.title}".`,
+      'group_market_participant_joined',
+      ['in_app', 'push'],
+    );
     return bet;
   }
 
@@ -291,6 +407,14 @@ export class GroupService {
     bet.declaredWinnerId = new Types.ObjectId(winnerId);
     bet.confirmationDeadline = new Date(Date.now() + 24 * 60 * 60 * 1000);
     await bet.save();
+    this.notifyMany(
+      bet.participants.map((entry) => entry.userId.toString()),
+      `${bet.title}: Confirm Outcome`,
+      'A winner was declared. Confirm or dispute this result.',
+      'group_market_pending_confirmation',
+      userId,
+      ['in_app', 'push'],
+    );
 
     return bet;
   }
@@ -323,9 +447,118 @@ export class GroupService {
     if (bet.disagreements >= bet.participants.length * 0.3) {
       bet.status = 'disputed';
       await bet.save();
+      this.dispatchNotification(
+        bet.createdBy.toString(),
+        `${bet.title}: Disputed`,
+        'Participants disputed this result. Please review.',
+        'group_market_disputed',
+        ['in_app', 'push'],
+      );
     }
 
     return bet;
+  }
+
+  async closeGroupBet(groupId: string, betId: string, actorId: string) {
+    const group = await this.findGroupByIdentifier(groupId);
+    if (!group) throw new NotFoundException('Group not found');
+    this.assertCanManageGroup(group, actorId);
+
+    const bet = await this.findGroupBetByIdentifier(group._id.toString(), betId);
+    if (!bet) throw new NotFoundException('Bet not found');
+
+    if (bet.status === 'settled' || bet.status === 'cancelled') {
+      return bet;
+    }
+
+    const wasActive = bet.status === 'active';
+    bet.status = 'cancelled';
+    bet.payoutProcessed = false;
+    await bet.save();
+
+    if (wasActive && group.activeBetsCount > 0) {
+      group.activeBetsCount -= 1;
+      await group.save();
+    }
+    this.notifyMany(
+      bet.participants.map((entry) => entry.userId.toString()),
+      `${bet.title}: Closed`,
+      'This group market was closed by an admin.',
+      'group_market_closed',
+      actorId,
+      ['in_app', 'push'],
+    );
+
+    return bet;
+  }
+
+  async deleteGroupBet(groupId: string, betId: string, actorId: string) {
+    const group = await this.findGroupByIdentifier(groupId);
+    if (!group) throw new NotFoundException('Group not found');
+    this.assertCanManageGroup(group, actorId);
+
+    const bet = await this.findGroupBetByIdentifier(group._id.toString(), betId);
+    if (!bet) throw new NotFoundException('Bet not found');
+
+    if (!['settled', 'cancelled'].includes(bet.status)) {
+      throw new BadRequestException('Close the market before deleting it');
+    }
+
+    await this.groupBetModel.deleteOne({ _id: bet._id }).exec();
+
+    if (group.totalBets > 0) {
+      group.totalBets -= 1;
+    }
+    await group.save();
+    this.notifyMany(
+      bet.participants.map((entry) => entry.userId.toString()),
+      `${bet.title}: Deleted`,
+      'This group market was deleted after closure.',
+      'group_market_deleted',
+      actorId,
+      ['in_app', 'push'],
+    );
+
+    return { success: true, id: betId };
+  }
+
+  async deleteGroup(groupId: string, actorId: string) {
+    const group = await this.findGroupByIdentifier(groupId);
+    if (!group) throw new NotFoundException('Group not found');
+    this.assertCanManageGroup(group, actorId);
+
+    const unresolvedBetsCount = await this.groupBetModel.countDocuments({
+      groupId: group._id,
+      status: { $nin: ['settled', 'cancelled'] },
+    });
+    if (unresolvedBetsCount > 0) {
+      throw new BadRequestException(
+        'Resolve all group markets (settled or cancelled) before deleting this group',
+      );
+    }
+
+    await this.groupBetModel.deleteMany({ groupId: group._id }).exec();
+    await this.groupModel.deleteOne({ _id: group._id }).exec();
+
+    const memberIds = Array.from(
+      new Set(group.members.map((member) => member.userId?.toString()).filter(Boolean)),
+    );
+    if (memberIds.length) {
+      await this.userModel.updateMany(
+        { _id: { $in: memberIds.map((id) => new Types.ObjectId(id)) } },
+        { $inc: { groupMemberships: -1 } },
+      );
+      this.notifyMany(
+        memberIds,
+        `${group.name}: Group Removed`,
+        'This group was deleted by an admin after all markets were resolved.',
+        'group_deleted',
+        actorId,
+        ['in_app', 'push'],
+      );
+    }
+
+    return { success: true, id: groupId };
   }
 
   // Internal helpers
@@ -383,11 +616,56 @@ export class GroupService {
             type: 'bet_payout',
           }).pipe(timeout(8000)),
         );
+        this.dispatchNotification(
+          winnerId,
+          'Group Market Won',
+          `You won "${bet.title}" and received a payout.`,
+          'group_market_payout',
+          ['in_app', 'push'],
+        );
       }
     }
 
     bet.payoutProcessed = true;
     await bet.save();
+  }
+
+  private getMemberIds(group: GroupDocument) {
+    return Array.from(
+      new Set(group.members.map((member) => member.userId?.toString()).filter(Boolean)),
+    );
+  }
+
+  private notifyMany(
+    userIds: string[],
+    title: string,
+    message: string,
+    type: string,
+    excludeUserId?: string,
+    channels: string[] = ['in_app'],
+  ) {
+    const uniqueUserIds = Array.from(new Set(userIds.filter(Boolean)));
+    uniqueUserIds.forEach((userId) => {
+      if (excludeUserId && userId === excludeUserId) return;
+      this.dispatchNotification(userId, title, message, type, channels);
+    });
+  }
+
+  private dispatchNotification(
+    userId: string,
+    title: string,
+    message: string,
+    type = 'system',
+    channels: string[] = ['in_app'],
+  ) {
+    if (!userId) return;
+    this.kafkaClient.emit(KAFKA_TOPICS.NOTIFICATION_DISPATCH, {
+      userId,
+      title,
+      message,
+      type,
+      channels,
+    });
   }
 
   private generateInviteCode() {
@@ -397,5 +675,92 @@ export class GroupService {
       code += alphabet[Math.floor(Math.random() * alphabet.length)];
     }
     return code;
+  }
+
+  private slugify(value: string) {
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .replace(/-{2,}/g, '-');
+  }
+
+  private async ensureUniqueGroupSlug(name: string, excludeGroupId?: string) {
+    const base = this.slugify(name) || `group-${Date.now()}`;
+    let candidate = base;
+    let attempt = 0;
+    while (attempt < 1000) {
+      const existing = await this.groupModel
+        .findOne({
+          slug: candidate,
+          ...(excludeGroupId ? { _id: { $ne: new Types.ObjectId(excludeGroupId) } } : {}),
+        })
+        .select('_id')
+        .lean()
+        .exec();
+      if (!existing) return candidate;
+      attempt += 1;
+      candidate = `${base}-${attempt + 1}`;
+    }
+    return `${base}-${Date.now()}`;
+  }
+
+  private async ensureUniqueGroupBetSlug(groupId: string, title: string, excludeBetId?: string) {
+    const base = this.slugify(title) || `market-${Date.now()}`;
+    let candidate = `${base}-${this.slugify(groupId).slice(-6)}`;
+    let attempt = 0;
+    while (attempt < 1000) {
+      const existing = await this.groupBetModel
+        .findOne({
+          slug: candidate,
+          ...(excludeBetId ? { _id: { $ne: new Types.ObjectId(excludeBetId) } } : {}),
+        })
+        .select('_id')
+        .lean()
+        .exec();
+      if (!existing) return candidate;
+      attempt += 1;
+      candidate = `${base}-${this.slugify(groupId).slice(-6)}-${attempt + 1}`;
+    }
+    return `${base}-${Date.now()}`;
+  }
+
+  private async findGroupByIdentifier(identifier: string, populateMembers = false) {
+    const normalized = decodeURIComponent(String(identifier || '').trim()).toLowerCase();
+    let query = this.groupModel.findOne({
+      $or: [
+        ...(Types.ObjectId.isValid(normalized) ? [{ _id: new Types.ObjectId(normalized) }] : []),
+        { slug: normalized },
+      ],
+    });
+    if (populateMembers) {
+      query = query.populate('members.userId', 'username avatarUrl');
+    }
+    return query.exec();
+  }
+
+  private async findGroupBetByIdentifier(groupId: string, betIdentifier: string) {
+    const normalized = decodeURIComponent(String(betIdentifier || '').trim()).toLowerCase();
+    return this.groupBetModel
+      .findOne({
+        groupId: new Types.ObjectId(groupId),
+        $or: [
+          ...(Types.ObjectId.isValid(normalized)
+            ? [{ _id: new Types.ObjectId(normalized) }]
+            : []),
+          { slug: normalized },
+        ],
+      })
+      .exec();
+  }
+
+  private assertCanManageGroup(group: GroupDocument, actorId: string) {
+    const actorMember = group.members.find((member) => member.userId.toString() === actorId);
+    const isOwner = group.createdBy.toString() === actorId;
+    const canManage = isOwner || actorMember?.role === 'admin' || actorMember?.role === 'moderator';
+    if (!canManage) {
+      throw new BadRequestException('Not authorized to manage this group');
+    }
   }
 }

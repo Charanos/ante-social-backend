@@ -26,6 +26,7 @@ import {
 import {
   DAILY_LIMITS,
   DepositDto,
+  normalizeUserTier,
   TransactionStatus,
   TransactionType,
   UserTier,
@@ -606,7 +607,7 @@ export class WalletService {
     return savedTx;
   }
 
-  async approveWithdrawal(transactionId: string) {
+  async approveWithdrawal(transactionId: string, adminId?: string) {
     const tx = await this.withMongoTransaction(async (session) => {
       const pending = await this.transactionModel.findById(transactionId, undefined, { session });
       if (!pending || pending.type !== TransactionType.WITHDRAWAL) {
@@ -642,6 +643,9 @@ export class WalletService {
       );
 
       pending.status = TransactionStatus.COMPLETED;
+      if (adminId && Types.ObjectId.isValid(adminId)) {
+        pending.processedBy = new Types.ObjectId(adminId);
+      }
       await pending.save({ session });
       return pending;
     });
@@ -659,7 +663,7 @@ export class WalletService {
     return tx;
   }
 
-  async rejectWithdrawal(transactionId: string) {
+  async rejectWithdrawal(transactionId: string, reason?: string, adminId?: string) {
     const tx = await this.withMongoTransaction(async (session) => {
       const pending = await this.transactionModel.findById(transactionId, undefined, { session });
       if (!pending || pending.type !== TransactionType.WITHDRAWAL) {
@@ -695,6 +699,15 @@ export class WalletService {
       );
 
       pending.status = TransactionStatus.FAILED;
+      if (adminId && Types.ObjectId.isValid(adminId)) {
+        pending.processedBy = new Types.ObjectId(adminId);
+      }
+      if (reason && reason.trim()) {
+        pending.paymentMetadata = {
+          ...(pending.paymentMetadata || {}),
+          rejectionReason: reason.trim(),
+        };
+      }
       await pending.save({ session });
       return pending;
     });
@@ -894,7 +907,7 @@ export class WalletService {
       .findById(new Types.ObjectId(userId), 'tier', { session })
       .lean()
       .exec();
-    const tier = (user?.tier as UserTier | undefined) || UserTier.NOVICE;
+    const tier = normalizeUserTier(user?.tier);
     return tier in DAILY_LIMITS ? tier : UserTier.NOVICE;
   }
 

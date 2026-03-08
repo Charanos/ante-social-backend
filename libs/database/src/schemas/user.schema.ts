@@ -39,7 +39,22 @@ export class User {
   walletId?: Types.ObjectId;
 
   // ─── Identity & Trust ───────────────────────────
-  @Prop({ default: 'novice', enum: ['novice', 'high_roller'] })
+  @Prop({
+    default: 'novice',
+    enum: [
+      'novice',
+      'analyst',
+      'strategist',
+      'high_roller',
+      // Legacy/compatibility values
+      'prognosticator',
+      'expert',
+      'oracle',
+      'whale',
+      // Compliance system value
+      'restricted',
+    ],
+  })
   tier!: string;
 
   @Prop({ default: 'user', enum: ['user', 'moderator', 'group_admin', 'admin'] })

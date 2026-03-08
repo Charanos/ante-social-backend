@@ -15,7 +15,7 @@ import {
   IsIn,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { MarketType, SettlementMethod, OddsType } from '../constants';
+import { MarketType, SettlementMethod, OddsType, UserTier } from '../constants';
 
 export class MarketOutcomeDto {
   @IsOptional()
@@ -103,6 +103,10 @@ export class CreateMarketDto {
   @IsOptional()
   @IsInt()
   maxParticipants?: number;
+
+  @IsOptional()
+  @IsEnum(UserTier)
+  minimumTier?: UserTier;
 
   @IsOptional()
   @IsEnum(SettlementMethod)

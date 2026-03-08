@@ -108,14 +108,16 @@ export class UserService {
     const totalPositions = Number(user.totalPositions || 0);
     const wins = Number(user.positionsWon || 0);
     const losses = Number(user.positionsLost || 0);
-    const tierBoost = String(user.tier || '').toLowerCase() === 'high_roller' ? 2 : 0;
+    const normalizedTier = String(user.tier || '').toLowerCase();
+    const tierBoost =
+      normalizedTier === 'high_roller' ? 2 : normalizedTier === 'strategist' ? 1 : 0;
     const unlockedCount = Math.max(1, Math.min(6, Math.floor(totalPositions / 5) + 1 + tierBoost));
 
     const catalog = [
       { key: 'first_win', title: 'First Win', category: 'beginner', reward: 100, icon: 'trophy' },
       { key: 'activity_streak', title: 'Activity Streak', category: 'time_based', reward: 150, icon: 'clock' },
       { key: 'accuracy_master', title: 'Accuracy Master', category: 'performance', reward: 220, icon: 'zap' },
-      { key: 'high_roller', title: 'High Roller', category: 'prestige', reward: 500, icon: 'crown' },
+      { key: 'tier_elite', title: 'Tier Elite', category: 'prestige', reward: 500, icon: 'crown' },
       { key: 'win_rate_boost', title: 'Win Rate Boost', category: 'performance', reward: 280, icon: 'flame' },
       { key: 'volume_trader', title: 'Volume Trader', category: 'spending', reward: 320, icon: 'coins' },
     ];

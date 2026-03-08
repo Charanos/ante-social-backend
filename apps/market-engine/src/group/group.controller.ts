@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, UseGuards, Query, Patch } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards, Query, Patch, Delete } from '@nestjs/common';
 import { GroupService } from './group.service';
 import { JwtAuthGuard, CurrentUser } from '@app/common';
 import { UserDocument } from '@app/database';
@@ -61,6 +61,11 @@ export class GroupController {
     return this.groupService.updateGroup(id, data, user._id.toString());
   }
 
+  @Delete(':id')
+  async deleteGroup(@Param('id') id: string, @CurrentUser() user: UserDocument) {
+    return this.groupService.deleteGroup(id, user._id.toString());
+  }
+
   @Patch(':id/members/:memberId/role')
   async updateMemberRole(
     @Param('id') groupId: string,
@@ -102,6 +107,24 @@ export class GroupController {
   @Get(':id/bets')
   async getGroupBets(@Param('id') groupId: string) {
     return this.groupService.getGroupBets(groupId);
+  }
+
+  @Post(':id/bets/:betId/close')
+  async closeGroupBet(
+    @Param('id') groupId: string,
+    @Param('betId') betId: string,
+    @CurrentUser() user: UserDocument,
+  ) {
+    return this.groupService.closeGroupBet(groupId, betId, user._id.toString());
+  }
+
+  @Delete(':id/bets/:betId')
+  async deleteGroupBet(
+    @Param('id') groupId: string,
+    @Param('betId') betId: string,
+    @CurrentUser() user: UserDocument,
+  ) {
+    return this.groupService.deleteGroupBet(groupId, betId, user._id.toString());
   }
 
   @Post('bets/:betId/join')

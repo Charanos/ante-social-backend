@@ -4,7 +4,15 @@ import { Model, Types } from 'mongoose';
 import { ClientProxy, ClientKafka } from '@nestjs/microservices';
 import { lastValueFrom, timeout } from 'rxjs';
 import { MarketDocument, MarketBet, MarketBetDocument, User, UserDocument } from '@app/database';
-import { MarketType, MarketStatus, PLATFORM_FEE_RATE, REFLEX_MULTIPLIER_TIERS, KAFKA_TOPICS } from '@app/common';
+import {
+  MarketType,
+  MarketStatus,
+  PLATFORM_FEE_RATE,
+  REFLEX_MULTIPLIER_TIERS,
+  KAFKA_TOPICS,
+  USER_TIER_RANK,
+  normalizeUserTier,
+} from '@app/common';
 import { MarketSettledEvent } from '@app/kafka';
 import {
   calculateIntegrityWeightedPayouts,
@@ -31,6 +39,8 @@ export class SettlementDispatcher {
         return this.handleConsensus(market);
       case MarketType.REFLEX:
         return this.handleReflex(market);
+      case MarketType.DIVERGENCE:
+        return this.handleDivergence(market);
       case MarketType.LADDER:
         return this.handleLadder(market);
       case MarketType.PRISONER_DILEMMA:
@@ -69,7 +79,8 @@ export class SettlementDispatcher {
       prizePool,
     );
 
-    for (const winner of winners) {
+    const prioritizedWinners = await this.prioritizeBetsByTier(winners);
+    for (const winner of prioritizedWinners) {
       const share = payouts.get(winner.userId.toString()) ?? 0;
       winner.actualPayout = share;
       winner.isWinner = true;
@@ -112,7 +123,8 @@ export class SettlementDispatcher {
     const tier = REFLEX_MULTIPLIER_TIERS.find(t => minorityPct <= t.maxPct);
     const multiplier = tier?.multiplier || 1.0;
 
-    for (const winner of minorityBets) {
+    const prioritizedMinority = await this.prioritizeBetsByTier(minorityBets);
+    for (const winner of prioritizedMinority) {
       const payout = winner.amountContributed * multiplier;
       winner.actualPayout = payout;
       winner.isWinner = true;
@@ -130,6 +142,56 @@ export class SettlementDispatcher {
     }
 
     this.emitSettledEvent(market, prizePool, platformFee, minorityBets.length);
+  }
+
+  // —— Divergence ("Odd One Out") ———————————————————————————————————————————————
+  private async handleDivergence(market: MarketDocument) {
+    const bets = await this.betModel.find({ marketId: market._id }).exec();
+    if (bets.length === 0) return;
+
+    const totalPool = bets.reduce((sum, b) => sum + b.amountContributed, 0);
+    const platformFee = totalPool * PLATFORM_FEE_RATE;
+    const prizePool = totalPool - platformFee;
+
+    const outcomeGroups: Record<string, typeof bets> = {};
+    for (const bet of bets) {
+      const key = bet.selectedOutcomeId.toString();
+      if (!outcomeGroups[key]) outcomeGroups[key] = [];
+      outcomeGroups[key].push(bet);
+    }
+
+    const groups = Object.entries(outcomeGroups).sort((a, b) => a[1].length - b[1].length);
+    const minorityKey = groups[0]?.[0];
+    if (!minorityKey) return;
+
+    const winners = bets.filter((bet) => bet.selectedOutcomeId.toString() === minorityKey);
+    const losers = bets.filter((bet) => bet.selectedOutcomeId.toString() !== minorityKey);
+    const payouts = calculateProportionalPayouts(
+      winners.map((winner) => ({
+        id: winner.userId.toString(),
+        stake: winner.amountContributed,
+      })),
+      prizePool,
+    );
+
+    const prioritizedWinners = await this.prioritizeBetsByTier(winners);
+    for (const winner of prioritizedWinners) {
+      const payout = payouts.get(winner.userId.toString()) ?? 0;
+      winner.actualPayout = payout;
+      winner.isWinner = true;
+      winner.payoutProcessed = true;
+      await winner.save();
+      await this.creditWinner(winner.userId.toString(), payout, market.title);
+    }
+
+    for (const loser of losers) {
+      loser.actualPayout = 0;
+      loser.isWinner = false;
+      loser.payoutProcessed = true;
+      await loser.save();
+    }
+
+    this.emitSettledEvent(market, prizePool, platformFee, winners.length);
   }
 
   // ─── Ladder ("Conviction Climb") ────────────────────
@@ -158,7 +220,8 @@ export class SettlementDispatcher {
       prizePool,
     );
 
-    for (const winner of winners) {
+    const prioritizedWinners = await this.prioritizeBetsByTier(winners);
+    for (const winner of prioritizedWinners) {
       const payout = payouts.get(winner.userId.toString()) ?? 0;
       winner.actualPayout = payout;
       winner.isWinner = true;
@@ -205,7 +268,8 @@ export class SettlementDispatcher {
       prizePool,
     );
 
-    for (const winner of winners) {
+    const prioritizedWinners = await this.prioritizeBetsByTier(winners);
+    for (const winner of prioritizedWinners) {
       const payout = payouts.get(winner.userId.toString()) ?? 0;
       winner.actualPayout = payout;
       winner.isWinner = true;
@@ -242,7 +306,8 @@ export class SettlementDispatcher {
 
     if (defectors.length === 0) {
       const bonus = prizePool / cooperators.length;
-      for (const coop of cooperators) {
+      const prioritizedCooperators = await this.prioritizeBetsByTier(cooperators);
+      for (const coop of prioritizedCooperators) {
         coop.actualPayout = coop.amountContributed + bonus * 0.1;
         coop.isWinner = true;
         coop.payoutProcessed = true;
@@ -251,7 +316,8 @@ export class SettlementDispatcher {
       }
     } else if (cooperators.length === 0) {
       const returnRate = 0.7;
-      for (const def of defectors) {
+      const prioritizedDefectors = await this.prioritizeBetsByTier(defectors);
+      for (const def of prioritizedDefectors) {
         const payout = def.amountContributed * returnRate;
         def.actualPayout = payout;
         def.isWinner = false;
@@ -263,7 +329,8 @@ export class SettlementDispatcher {
       const defectorPayout = prizePool * 0.7 / defectors.length;
       const cooperatorPayout = prizePool * 0.3 / cooperators.length;
 
-      for (const def of defectors) {
+      const prioritizedDefectors = await this.prioritizeBetsByTier(defectors);
+      for (const def of prioritizedDefectors) {
         def.actualPayout = defectorPayout;
         def.isWinner = true;
         def.payoutProcessed = true;
@@ -271,7 +338,8 @@ export class SettlementDispatcher {
         await this.creditWinner(def.userId.toString(), defectorPayout, market.title);
       }
 
-      for (const coop of cooperators) {
+      const prioritizedCooperators = await this.prioritizeBetsByTier(cooperators);
+      for (const coop of prioritizedCooperators) {
         coop.actualPayout = cooperatorPayout;
         coop.isWinner = cooperatorPayout > coop.amountContributed;
         coop.payoutProcessed = true;
@@ -311,6 +379,34 @@ export class SettlementDispatcher {
       winnerCount,
       settledAt: new Date().toISOString(),
     }));
+  }
+
+  private async prioritizeBetsByTier<T extends { userId: Types.ObjectId }>(bets: T[]): Promise<T[]> {
+    if (bets.length <= 1) {
+      return bets;
+    }
+
+    const userIds = Array.from(new Set(bets.map((bet) => bet.userId.toString())));
+    const users = await this.userModel
+      .find({ _id: { $in: userIds.map((id) => new Types.ObjectId(id)) } })
+      .select('_id tier')
+      .lean()
+      .exec();
+
+    const rankByUserId = new Map<string, number>();
+    users.forEach((user: any) => {
+      const normalizedTier = normalizeUserTier(user?.tier);
+      rankByUserId.set(user._id.toString(), USER_TIER_RANK[normalizedTier] ?? 0);
+    });
+
+    return [...bets].sort((left, right) => {
+      const leftRank = rankByUserId.get(left.userId.toString()) ?? 0;
+      const rightRank = rankByUserId.get(right.userId.toString()) ?? 0;
+      if (rightRank !== leftRank) {
+        return rightRank - leftRank;
+      }
+      return left.userId.toString().localeCompare(right.userId.toString());
+    });
   }
 
   private async getIntegrityMap(userIds: string[]) {

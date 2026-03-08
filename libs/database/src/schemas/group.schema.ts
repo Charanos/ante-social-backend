@@ -24,6 +24,9 @@ export class Group {
   @Prop({ required: true })
   name!: string;
 
+  @Prop({ unique: true, sparse: true, trim: true, lowercase: true })
+  slug?: string;
+
   @Prop()
   description?: string;
 

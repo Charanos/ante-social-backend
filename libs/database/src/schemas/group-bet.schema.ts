@@ -37,11 +37,17 @@ export class GroupBet {
   @Prop({ required: true })
   title!: string;
 
+  @Prop({ unique: true, sparse: true, trim: true, lowercase: true })
+  slug?: string;
+
   @Prop()
   description?: string;
 
   @Prop({ required: true, enum: ['winner_takes_all', 'odd_one_out'] })
   marketType!: string;
+
+  @Prop({ enum: ['poll', 'betrayal', 'reflex', 'ladder', 'divergence'], default: 'poll' })
+  marketSubtype!: string;
 
   @Prop({ required: true })
   buyInAmount!: number;

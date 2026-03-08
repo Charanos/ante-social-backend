@@ -43,6 +43,9 @@ export class Market {
   @Prop({ required: true })
   title!: string;
 
+  @Prop({ unique: true, sparse: true, trim: true, lowercase: true })
+  slug?: string;
+
   @Prop({ required: true })
   description!: string;
 
@@ -76,6 +79,9 @@ export class Market {
 
   @Prop()
   maxParticipants?: number;
+
+  @Prop({ default: 'novice', enum: ['novice', 'analyst', 'strategist', 'high_roller'] })
+  minimumTier!: string;
 
   // ─── Timing ───────────────────────────────────
   @Prop()

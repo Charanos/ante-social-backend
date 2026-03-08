@@ -2,7 +2,13 @@ import { Injectable, NotFoundException, BadRequestException, Inject } from '@nes
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Market, MarketDocument } from '@app/database';
-import { CreateMarketDto, MarketStatus, KAFKA_TOPICS } from '@app/common';
+import {
+  CreateMarketDto,
+  MarketStatus,
+  KAFKA_TOPICS,
+  UserTier,
+  normalizeUserTier,
+} from '@app/common';
 import { ClientKafka } from '@nestjs/microservices';
 import { MarketCreatedEvent, MarketClosedEvent } from '@app/kafka';
 import { SettlementDispatcher } from '../settlement/settlement.dispatcher';
@@ -25,9 +31,13 @@ export class MarketService {
         ? 'betrayal'
         : createMarketDto.betType;
 
+    const slug = await this.ensureUniqueMarketSlug(createMarketDto.title);
+
     const market = new this.marketModel({
       ...createMarketDto,
+      slug,
       betType: normalizedBetType,
+      minimumTier: normalizeUserTier(createMarketDto.minimumTier || UserTier.NOVICE),
       createdBy: new Types.ObjectId(userId),
       status: createMarketDto.scheduledPublishTime ? MarketStatus.SCHEDULED : MarketStatus.ACTIVE,
     });
@@ -89,13 +99,13 @@ export class MarketService {
   }
 
   async findOne(id: string) {
-    const market = await this.marketModel.findOne({ _id: id, isDeleted: { $ne: true } });
+    const market = await this.findMarketByIdentifier(id);
     if (!market) throw new NotFoundException('Market not found');
     return market;
   }
 
   async updateMarket(id: string, updates: Partial<CreateMarketDto>, userId: string) {
-    const market = await this.marketModel.findOne({ _id: id, isDeleted: { $ne: true } });
+    const market = await this.findMarketByIdentifier(id);
     if (!market) throw new NotFoundException('Market not found');
 
     if (updates.outcomes && updates.outcomes.length < 2) {
@@ -104,7 +114,13 @@ export class MarketService {
 
     const updateDoc: Record<string, any> = {};
 
-    if (updates.title !== undefined) updateDoc.title = updates.title;
+    if (updates.title !== undefined) {
+      updateDoc.title = updates.title;
+      updateDoc.slug = await this.ensureUniqueMarketSlug(
+        updates.title,
+        market._id.toString(),
+      );
+    }
     if (updates.description !== undefined) updateDoc.description = updates.description;
     if (updates.category !== undefined) updateDoc.category = updates.category;
     if (updates.isFeatured !== undefined) updateDoc.isFeatured = updates.isFeatured;
@@ -117,6 +133,9 @@ export class MarketService {
     if (updates.marketDuration !== undefined) updateDoc.marketDuration = updates.marketDuration;
     if (updates.minParticipants !== undefined) updateDoc.minParticipants = updates.minParticipants;
     if (updates.maxParticipants !== undefined) updateDoc.maxParticipants = updates.maxParticipants;
+    if (updates.minimumTier !== undefined) {
+      updateDoc.minimumTier = normalizeUserTier(updates.minimumTier);
+    }
     if (updates.settlementMethod !== undefined) updateDoc.settlementMethod = updates.settlementMethod;
     if (updates.externalApiEndpoint !== undefined) {
       updateDoc.externalApiEndpoint = updates.externalApiEndpoint;
@@ -156,13 +175,13 @@ export class MarketService {
     updateDoc.lastEditedBy = new Types.ObjectId(userId);
     updateDoc.version = (market.version || 1) + 1;
 
-    const updated = await this.marketModel.findByIdAndUpdate(id, updateDoc, { new: true });
+    const updated = await this.marketModel.findByIdAndUpdate(market._id, updateDoc, { new: true });
     if (!updated) throw new NotFoundException('Market not found');
     return updated;
   }
 
   async deleteMarket(id: string, userId: string) {
-    const market = await this.marketModel.findOne({ _id: id, isDeleted: { $ne: true } });
+    const market = await this.findMarketByIdentifier(id);
     if (!market) throw new NotFoundException('Market not found');
 
     market.isDeleted = true;
@@ -175,7 +194,7 @@ export class MarketService {
   }
 
   async closeMarket(id: string) {
-    const market = await this.marketModel.findOne({ _id: id, isDeleted: { $ne: true } });
+    const market = await this.findMarketByIdentifier(id);
     if (!market) throw new NotFoundException('Market not found');
 
     if (
@@ -209,7 +228,7 @@ export class MarketService {
   }
 
   async settleMarket(id: string, winningOptionId?: string) {
-    const market = await this.marketModel.findOne({ _id: id, isDeleted: { $ne: true } });
+    const market = await this.findMarketByIdentifier(id);
     if (!market) throw new NotFoundException('Market not found');
 
     if (market.status === MarketStatus.SETTLED) {
@@ -234,7 +253,7 @@ export class MarketService {
           );
 
     if (!settlingMarket) {
-      const latest = await this.marketModel.findById(id);
+      const latest = await this.marketModel.findById(market._id);
       if (latest?.status === MarketStatus.SETTLED) {
         return latest;
       }
@@ -258,5 +277,55 @@ export class MarketService {
     await settlingMarket.save();
 
     return settlingMarket;
+  }
+
+  private normalizeIdentifier(value: string) {
+    try {
+      return decodeURIComponent(String(value || '').trim()).toLowerCase();
+    } catch {
+      return String(value || '').trim().toLowerCase();
+    }
+  }
+
+  private slugify(value: string) {
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .replace(/-{2,}/g, '-');
+  }
+
+  private async ensureUniqueMarketSlug(title: string, excludeMarketId?: string) {
+    const base = this.slugify(title) || `market-${Date.now()}`;
+    let candidate = base;
+    let attempt = 0;
+    while (attempt < 1000) {
+      const existing = await this.marketModel
+        .findOne({
+          slug: candidate,
+          ...(excludeMarketId ? { _id: { $ne: new Types.ObjectId(excludeMarketId) } } : {}),
+        })
+        .select('_id')
+        .lean()
+        .exec();
+      if (!existing) return candidate;
+      attempt += 1;
+      candidate = `${base}-${attempt + 1}`;
+    }
+    return `${base}-${Date.now()}`;
+  }
+
+  private async findMarketByIdentifier(identifier: string) {
+    const normalized = this.normalizeIdentifier(identifier);
+    return this.marketModel
+      .findOne({
+        isDeleted: { $ne: true },
+        $or: [
+          ...(Types.ObjectId.isValid(normalized) ? [{ _id: new Types.ObjectId(normalized) }] : []),
+          { slug: normalized },
+        ],
+      })
+      .exec();
   }
 }
