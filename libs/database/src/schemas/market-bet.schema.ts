@@ -46,7 +46,7 @@ export class MarketBet {
   integrityWeight!: number;
 
   @Prop({ type: Object })
-  betContextSnapshot?: Record<string, any>;
+  betContextSnapshot?: any;
 
   // ─── Edit Window ──────────────────────────────
   @Prop()

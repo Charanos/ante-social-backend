@@ -33,7 +33,7 @@ export class ComplianceFlag {
   description!: string;
 
   @Prop({ type: Object })
-  metadata?: Record<string, any>; // Evidence data
+  metadata?: any; // Evidence data
 
   @Prop({ type: Types.ObjectId, ref: 'User' })
   reviewedBy?: Types.ObjectId;

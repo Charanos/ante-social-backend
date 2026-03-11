@@ -44,7 +44,7 @@ export class Transaction {
   externalTransactionId?: string;
 
   @Prop({ type: MongooseSchema.Types.Mixed })
-  paymentMetadata?: Record<string, any>;
+  paymentMetadata?: any;
 
   // ─── Exchange Rate ────────────────────────────
   @Prop()

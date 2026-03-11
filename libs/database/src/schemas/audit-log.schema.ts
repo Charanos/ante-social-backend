@@ -1,12 +1,12 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, Types, Schema as MongooseSchema } from 'mongoose';
 
 export type AuditLogDocument = HydratedDocument<AuditLog>;
 
 @Schema({ collection: 'audit_logs', timestamps: false })
 export class AuditLog {
   @Prop({ required: true, unique: true })
-  sequenceNumber!: number;
+  sequence_number!: number;
 
   @Prop({ required: true, type: Date, default: Date.now })
   timestamp!: Date;
@@ -29,11 +29,11 @@ export class AuditLog {
   @Prop({ required: true })
   action!: string;
 
-  @Prop({ type: Object })
-  beforeState?: Record<string, any>;
+  @Prop({ type: MongooseSchema.Types.Mixed })
+  beforeState?: any;
 
-  @Prop({ type: Object })
-  afterState?: Record<string, any>;
+  @Prop({ type: MongooseSchema.Types.Mixed })
+  afterState?: any;
 
   @Prop()
   amountCents?: number;
@@ -44,8 +44,8 @@ export class AuditLog {
   @Prop({ type: Types.ObjectId })
   relatedEntityId?: Types.ObjectId;
 
-  @Prop({ type: Object })
-  metadata?: Record<string, any>;
+  @Prop({ type: MongooseSchema.Types.Mixed })
+  metadata?: any;
 
   @Prop()
   ipAddress?: string;
@@ -70,3 +70,21 @@ export const AuditLogSchema = SchemaFactory.createForClass(AuditLog);
 AuditLogSchema.index({ actorId: 1, timestamp: -1 });
 AuditLogSchema.index({ entityType: 1, entityId: 1 });
 AuditLogSchema.index({ eventType: 1, timestamp: -1 });
+
+AuditLogSchema.set('toJSON', {
+  transform: (doc, ret) => {
+    const obj = ret as any;
+    obj.sequenceNumber = obj.sequence_number;
+    delete obj.sequence_number;
+    return obj;
+  },
+});
+
+AuditLogSchema.set('toObject', {
+  transform: (doc, ret) => {
+    const obj = ret as any;
+    obj.sequenceNumber = obj.sequence_number;
+    delete obj.sequence_number;
+    return obj;
+  },
+});

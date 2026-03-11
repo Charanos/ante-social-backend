@@ -92,7 +92,7 @@ export class AuthService {
 
   async validateUser(email: string, pass: string): Promise<UserDocument | null> {
     const user = await this.userModel.findOne({ email });
-    if (user && (await bcrypt.compare(pass, user.passwordHash))) {
+    if (user && user.passwordHash && (await bcrypt.compare(pass, user.passwordHash))) {
       return user;
     }
     return null;
@@ -124,6 +124,76 @@ export class AuthService {
     user.lastLoginAt = new Date();
     await user.save();
     return this.issueAuthTokens(user);
+  }
+
+  async googleLogin(dto: any) {
+    const { email, googleId, fullName, avatarUrl } = dto;
+
+    let user = await this.userModel.findOne({
+      $or: [{ googleId }, { email: email.toLowerCase() }],
+    });
+
+    if (user) {
+      // Link Google ID if not already linked
+      if (!user.googleId) {
+        user.googleId = googleId;
+        await user.save();
+      }
+    } else {
+      // Create new user (Sign up)
+      const baseUsername = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '');
+      let username = baseUsername;
+      let counter = 1;
+
+      // Ensure unique username
+      while (await this.userModel.findOne({ username })) {
+        username = `${baseUsername}${counter++}`;
+      }
+
+      user = new this.userModel({
+        email: email.toLowerCase(),
+        username,
+        googleId,
+        fullName,
+        avatarUrl: avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(username)}`,
+        emailVerified: true,
+        tier: UserTier.NOVICE,
+        role: UserRole.USER,
+        reputationScore: 100,
+        integrityWeight: 0.85,
+      });
+
+      const savedUser = await user.save();
+
+      // Create Wallet
+      const wallet = new this.walletModel({
+        userId: savedUser._id,
+        balanceUsd: 0,
+        balanceKsh: 0,
+      });
+      const savedWallet = await wallet.save();
+
+      savedUser.walletId = savedWallet._id;
+      await savedUser.save();
+
+      // Emit Kafka Event
+      this.kafkaClient.emit(
+        'user.created',
+        new UserCreatedEvent({
+          userId: savedUser._id.toString(),
+          email: savedUser.email,
+          username: savedUser.username,
+          tier: UserTier.NOVICE,
+          emailVerified: true,
+        }),
+      );
+    }
+
+    const result = await this.completeLogin(user);
+    return {
+      ...result,
+      needsOnboarding: !user.dateOfBirth,
+    };
   }
 
   async refreshTokens(refreshToken: string) {
@@ -278,6 +348,10 @@ export class AuthService {
     const user = await this.userModel.findById(userId);
     if (!user) {
       throw new NotFoundException('User not found');
+    }
+
+    if (!user.passwordHash) {
+      throw new UnauthorizedException('Authentication method not supported for this account');
     }
 
     const isCurrentPasswordValid = await bcrypt.compare(currentPassword, user.passwordHash);

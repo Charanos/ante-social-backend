@@ -9,25 +9,25 @@ export class LandingPage {
   key!: string;
 
   @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
-  hero!: Record<string, unknown>;
+  hero!: any;
 
   @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
-  features!: Record<string, unknown>;
+  features!: any;
 
   @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
-  gameModes!: Record<string, unknown>;
+  gameModes!: any;
 
   @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
-  testimonials!: Record<string, unknown>;
+  testimonials!: any;
 
   @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
-  hallOfFame!: Record<string, unknown>;
+  hallOfFame!: any;
 
   @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
-  currency!: Record<string, unknown>;
+  currency!: any;
 
   @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
-  socialProofStats!: Record<string, unknown>;
+  socialProofStats!: any;
 
   @Prop()
   createdAt?: Date;

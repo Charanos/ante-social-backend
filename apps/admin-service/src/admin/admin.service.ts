@@ -1062,7 +1062,7 @@ export class AdminService {
     const [logs, total] = await Promise.all([
       this.auditLogModel
         .find(filter)
-        .sort({ sequenceNumber: -1 })
+        .sort({ sequence_number: -1 })
         .skip(safeOffset)
         .limit(safeLimit)
         .lean()
@@ -1080,7 +1080,7 @@ export class AdminService {
   async getMaintenanceTasks() {
     const latestRuns = await this.auditLogModel
       .find({ action: 'RUN_MAINTENANCE_TASK' })
-      .sort({ sequenceNumber: -1 })
+      .sort({ sequence_number: -1 })
       .limit(250)
       .select('timestamp metadata')
       .lean()
@@ -1378,8 +1378,8 @@ export class AdminService {
   private async runAuditChainCheck() {
     const logs = await this.auditLogModel
       .find()
-      .sort({ sequenceNumber: 1 })
-      .select('sequenceNumber timestamp')
+      .sort({ sequence_number: 1 })
+      .select('sequence_number timestamp')
       .limit(20000)
       .lean()
       .exec();
@@ -1401,8 +1401,8 @@ export class AdminService {
     for (let i = 1; i < logs.length; i += 1) {
       const previous = logs[i - 1];
       const current = logs[i];
-      const expected = Number(previous.sequenceNumber || 0) + 1;
-      const actual = Number(current.sequenceNumber || 0);
+      const expected = Number((previous as any).sequence_number || 0) + 1;
+      const actual = Number((current as any).sequence_number || 0);
       
       if (actual !== expected) {
         gaps.push({ expected, actual });
@@ -1418,8 +1418,8 @@ export class AdminService {
 
     return {
       totalLogs: logs.length,
-      firstSequence: logs[0].sequenceNumber,
-      lastSequence: logs[logs.length - 1].sequenceNumber,
+      firstSequence: (logs[0] as any).sequence_number,
+      lastSequence: (logs[logs.length - 1] as any).sequence_number,
       gapCount: gaps.length,
       outOfOrderTimestamps,
       sampleGaps: gaps.slice(0, 25),
@@ -1473,10 +1473,10 @@ export class AdminService {
         .exec(),
       this.auditLogModel
         .find()
-        .sort({ sequenceNumber: -1 })
+        .sort({ sequence_number: -1 })
         .limit(500)
         .select(
-          '_id sequenceNumber timestamp eventType actorId actorType entityType entityId action metadata verificationStatus',
+          '_id sequence_number timestamp eventType actorId actorType entityType entityId action metadata verificationStatus',
         )
         .lean()
         .exec(),
@@ -1950,22 +1950,25 @@ export class AdminService {
       const actorId = this.parseObjectId(metadata?.adminId) || this.systemActorId;
       const entityId = this.parseObjectId(targetId);
 
-      // Retry logic for sequenceNumber collisions (up to 3 attempts)
+      // Retry logic for sequence_number collisions (up to 5 attempts)
       let saved = false;
       let retries = 0;
-      const maxRetries = 3;
+      const maxRetries = 5;
 
       while (!saved && retries < maxRetries) {
+        let nextSeq = 0;
         try {
           const latest = await this.auditLogModel
             .findOne()
-            .sort({ sequenceNumber: -1 })
-            .select('sequenceNumber')
+            .sort({ sequence_number: -1 })
+            .select('sequence_number')
             .lean()
             .exec();
 
+          nextSeq = (latest?.sequence_number || 0) + 1;
+
           const log = new this.auditLogModel({
-            sequenceNumber: (latest?.sequenceNumber || 0) + 1,
+            sequence_number: nextSeq,
             timestamp: new Date(),
             eventType: 'admin_action',
             actorId,
@@ -1980,23 +1983,27 @@ export class AdminService {
           await log.save();
           saved = true;
           
-          this.logger.log(`Audit: ${action} on ${targetId} (seq: ${log.sequenceNumber})`);
+          this.logger.log(`Audit: ${action} on ${targetId} (seq: ${log.sequence_number})`);
         } catch (error: any) {
-          if (error.code === 11000 && error.message?.includes('sequenceNumber')) {
+          const isCollision = error.code === 11000 && 
+            (error.message?.includes('sequence_number') || error.message?.includes('sequenceNumber'));
+
+          if (isCollision) {
             retries++;
-            this.logger.warn(`Sequence number collision for audit log, retry ${retries}/${maxRetries}`);
-            
-            // Add jitter to avoid thundering herd
-            if (retries > 1) {
-              await new Promise((resolve) => setTimeout(resolve, Math.random() * 100));
-            }
+            const backoff = Math.floor(Math.random() * 150) + (retries * 50);
+            this.logger.warn(`Audit sequence collision (retry ${retries}/${maxRetries}), backoff ${backoff}ms (tried seq: ${nextSeq})`);
+            await new Promise((resolve) => setTimeout(resolve, backoff));
           } else {
+            this.logger.error(`Non-collision error in logAudit: ${error.message}`, error.stack);
             throw error;
           }
         }
       }
 
       if (!saved) {
+        // Find what's actually in there now to debug
+        const actualLatest = await this.auditLogModel.findOne().sort({ sequence_number: -1 }).lean().exec();
+        this.logger.error(`Failed to save audit log after ${maxRetries} retries. Latest in DB: ${JSON.stringify(actualLatest)}`);
         throw new Error(`Failed to save audit log after ${maxRetries} retries`);
       }
     } catch (error: any) {

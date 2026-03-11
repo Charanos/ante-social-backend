@@ -12,7 +12,7 @@ export class RateLimitMiddleware implements NestMiddleware {
 
   constructor(private readonly configService: ConfigService) {
     this.ttlSeconds = Number(this.configService.get<string>('API_GATEWAY_RATE_LIMIT_TTL') || 60);
-    this.maxRequests = Number(this.configService.get<string>('API_GATEWAY_RATE_LIMIT_LIMIT') || 180);
+    this.maxRequests = Number(this.configService.get<string>('API_GATEWAY_RATE_LIMIT_LIMIT') || 1000);
 
     const redisUrl =
       this.configService.get<string>('REDIS_URL') ||

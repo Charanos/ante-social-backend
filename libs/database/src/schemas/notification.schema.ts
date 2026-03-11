@@ -33,7 +33,7 @@ export class Notification {
   marketTitle?: string;
 
   @Prop({ type: Object })
-  metadata?: Record<string, any>;
+  metadata?: any;
 
   // ─── Delivery status ──────────────────────────
   @Prop({ default: false })

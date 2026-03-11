@@ -6,9 +6,17 @@ export class UserCreatedEvent extends BaseEvent<{
   email: string;
   username: string;
   tier: UserTier;
-  verificationToken: string;
+  verificationToken?: string;
+  emailVerified?: boolean;
 }> {
-  constructor(payload: { userId: string; email: string; username: string; tier: UserTier; verificationToken: string }) {
+  constructor(payload: {
+    userId: string;
+    email: string;
+    username: string;
+    tier: UserTier;
+    verificationToken?: string;
+    emailVerified?: boolean;
+  }) {
     super(KAFKA_TOPICS.USER_ACTIVITY, payload);
   }
 }

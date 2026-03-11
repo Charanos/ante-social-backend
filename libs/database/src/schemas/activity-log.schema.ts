@@ -35,7 +35,7 @@ export class ActivityLog {
   marketId?: Types.ObjectId;
 
   @Prop({ type: Object })
-  metadata?: Record<string, any>;
+  metadata?: any;
 
   @Prop()
   ipAddress?: string;

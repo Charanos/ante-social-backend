@@ -11,8 +11,11 @@ export class User {
   @Prop({ required: true, unique: true, trim: true })
   username!: string;
 
-  @Prop({ required: true })
-  passwordHash!: string;
+  @Prop({ unique: true, sparse: true })
+  googleId?: string;
+
+  @Prop({ required: false })
+  passwordHash?: string;
 
   @Prop()
   fullName?: string;
