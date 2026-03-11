@@ -10,10 +10,12 @@ import {
   sanitizeRequestMiddleware,
   registerHealthAndMetrics,
 } from '@app/common';
+import { NestExpressApplication } from '@nestjs/platform-express';
 
 async function bootstrap() {
   // Gateway is a pure proxy layer; keep raw request streams for forwarding.
-  const app = await NestFactory.create(AppModule, { bodyParser: false });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bodyParser: false });
+  app.set('trust proxy', true);
   app.useLogger(new JsonLogger('api-gateway'));
   const logger = new Logger('ApiGateway');
   initSentry('api-gateway', process.env.SENTRY_DSN);
