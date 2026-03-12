@@ -20,7 +20,9 @@
       "@app/database": ["libs/database/src/index"],
       "@app/database/*": ["libs/database/src/*"],
       "@app/kafka": ["libs/kafka/src/index"],
-      "@app/kafka/*": ["libs/kafka/src/*"]
+      "@app/kafka/*": ["libs/kafka/src/*"],
+      "@app/polymarket": ["libs/polymarket/src/index"],
+      "@app/polymarket/*": ["libs/polymarket/src/*"]
     },
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,

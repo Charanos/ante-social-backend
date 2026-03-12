@@ -213,6 +213,13 @@ export class Market {
   @Prop({ type: Types.ObjectId })
   deletedBy?: Types.ObjectId;
 
+  // ─── External Integration ─────────────────────
+  @Prop({ index: true, sparse: true })
+  externalId?: string;
+
+  @Prop({ index: true, sparse: true })
+  externalSource?: string;
+
   // ─── Optimistic Locking ───────────────────────
   @Prop({ default: 1 })
   version!: number;
@@ -227,3 +234,4 @@ MarketSchema.index({ category: 1, closeTime: 1 });
 MarketSchema.index({ createdBy: 1 });
 MarketSchema.index({ tags: 1 });
 MarketSchema.index({ isDeleted: 1, status: 1 });
+MarketSchema.index({ externalId: 1, externalSource: 1 }, { unique: true, sparse: true });

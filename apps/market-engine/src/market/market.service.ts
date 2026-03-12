@@ -326,6 +326,7 @@ export class MarketService {
         $or: [
           ...(Types.ObjectId.isValid(normalized) ? [{ _id: new Types.ObjectId(normalized) }] : []),
           { slug: normalized },
+          { externalId: normalized },
         ],
       })
       .exec();

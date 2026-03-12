@@ -92,6 +92,27 @@ export class AppModule implements NestModule {
         { path: 'api/v1/groups*', method: RequestMethod.ALL },
       );
 
+    // Polymarket API Proxy — forwards to the market-engine which calls Polymarket externally
+    consumer
+      .apply(
+        createProxyMiddleware({
+          target: process.env.MARKET_SERVICE_URL || 'http://127.0.0.1:3003',
+          changeOrigin: true,
+          timeout: 10000,
+          proxyTimeout: 10000,
+          on: {
+            proxyReq: fixRequestBody as any,
+            error: handleProxyError as any,
+          },
+          pathRewrite: {
+            '^/api/v1/polymarket': '/polymarket',
+          },
+        }),
+      )
+      .forRoutes(
+        { path: 'api/v1/polymarket*', method: RequestMethod.ALL },
+      );
+
     // Wallet Service Proxy
     consumer
       .apply(
@@ -148,5 +169,20 @@ export class AppModule implements NestModule {
         { path: 'api/v1/admin*', method: RequestMethod.ALL },
         { path: 'api/v1/public*', method: RequestMethod.ALL },
       );
+
+    // WebSocket Gateway Proxy
+    consumer
+      .apply(
+        createProxyMiddleware({
+          target: process.env.WEBSOCKET_GATEWAY_URL || 'http://127.0.0.1:3006',
+          changeOrigin: true,
+          ws: true,
+          on: {
+            proxyReq: fixRequestBody as any,
+            error: handleProxyError as any,
+          },
+        }),
+      )
+      .forRoutes({ path: 'socket.io*', method: RequestMethod.ALL });
   }
 }

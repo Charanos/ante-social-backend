@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, Query } from '@nestjs/common';
+import { RateLimit } from '@app/common';
 import { AdminService } from './admin.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { JwtAuthGuard, RolesGuard, Roles, UserRole, CurrentUser } from '@app/common';
@@ -311,11 +312,13 @@ export class PublicController {
   }
 
   @Get('content/landing-page')
+  @RateLimit({ limit: 500, ttl: 60 })
   async getLandingPageSettings() {
     return this.adminService.getLandingPageSettings();
   }
 
   @Get('leaderboard')
+  @RateLimit({ limit: 500, ttl: 60 })
   async getLeaderboard(@Query('limit') limit = 10) {
     return this.adminService.getLeaderboard(Number(limit));
   }

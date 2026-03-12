@@ -156,6 +156,14 @@ export class CreateMarketDto {
   @IsArray()
   @IsString({ each: true })
   regionsBlocked?: string[];
+
+  @IsOptional()
+  @IsString()
+  externalId?: string;
+
+  @IsOptional()
+  @IsString()
+  externalSource?: string;
 }
 
 export class PlacePredictionDto {

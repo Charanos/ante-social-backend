@@ -107,6 +107,15 @@
       "compilerOptions": {
         "tsConfigPath": "libs/kafka/tsconfig.lib.json"
       }
+    },
+    "polymarket": {
+      "type": "library",
+      "root": "libs/polymarket",
+      "entryFile": "index",
+      "sourceRoot": "libs/polymarket/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/polymarket/tsconfig.lib.json"
+      }
     }
   }
 }

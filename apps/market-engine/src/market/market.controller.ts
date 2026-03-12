@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Body, Param, Query, UseGuards, Put, Patch, Delete } from '@nestjs/common';
 import { MarketService } from './market.service';
-import { CreateMarketDto, JwtAuthGuard, CurrentUser, Roles, UserRole, RolesGuard } from '@app/common';
+import { CreateMarketDto, JwtAuthGuard, CurrentUser, Roles, UserRole, RolesGuard, RateLimit } from '@app/common';
 import { UserDocument } from '@app/database';
 
 @Controller('markets')
@@ -20,6 +20,7 @@ export class MarketController {
   }
 
   @Get(':id')
+  @RateLimit({ limit: 500, ttl: 60 })
   async findOne(@Param('id') id: string) {
     return this.marketService.findOne(id);
   }
