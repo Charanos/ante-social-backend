@@ -54,6 +54,10 @@ export class CreateMarketDto {
 
   @IsOptional()
   @IsString()
+  scenario?: string;
+
+  @IsOptional()
+  @IsString()
   category?: string;
 
   @IsOptional()
@@ -63,6 +67,10 @@ export class CreateMarketDto {
   @IsOptional()
   @IsBoolean()
   isRecurring?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isTrending?: boolean;
 
   @IsString()
   @IsIn([...Object.values(MarketType), 'syndicate'])

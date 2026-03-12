@@ -49,6 +49,9 @@ export class Market {
   @Prop({ required: true })
   description!: string;
 
+  @Prop()
+  scenario?: string;
+
   @Prop({ type: [String], default: [] })
   tags!: string[];
 
@@ -60,6 +63,9 @@ export class Market {
 
   @Prop({ default: false })
   isRecurring!: boolean;
+
+  @Prop({ default: false })
+  isTrending!: boolean;
 
   // ─── Betting Configuration ────────────────────
   @Prop({ required: true, enum: ['consensus', 'reflex', 'ladder', 'prisoner_dilemma', 'betrayal', 'divergence'] })

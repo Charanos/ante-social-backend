@@ -122,9 +122,11 @@ export class MarketService {
       );
     }
     if (updates.description !== undefined) updateDoc.description = updates.description;
+    if (updates.scenario !== undefined) updateDoc.scenario = updates.scenario;
     if (updates.category !== undefined) updateDoc.category = updates.category;
     if (updates.isFeatured !== undefined) updateDoc.isFeatured = updates.isFeatured;
     if (updates.isRecurring !== undefined) updateDoc.isRecurring = updates.isRecurring;
+    if (updates.isTrending !== undefined) updateDoc.isTrending = updates.isTrending;
     if (updates.betType !== undefined) {
       updateDoc.betType = (updates.betType as string) === 'syndicate' ? 'betrayal' : updates.betType;
     }

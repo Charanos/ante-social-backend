@@ -77,10 +77,32 @@ type SeedMarket = {
   mediaUrl?: string;
   isFeatured?: boolean;
   isRecurring?: boolean;
+  isTrending?: boolean;
+  scenario?: string;
   closeDaysFromNow?: number;
 };
 
 const SEED_MARKETS: SeedMarket[] = [
+  // ─── FEATURED & TRENDING ──────────────────────────────────────────────────
+  {
+    title: "Newcomb's Paradox: The $1,000,000 Dilemma",
+    description: "A near-perfect predictor tests your rationality. Box A ($1,000) or Box B ($1,000,000)?",
+    scenario: "In this famous thought experiment, a Predictor presents you with two boxes. Box A always contains $1,000. Box B contains either $1,000,000 or nothing. The Predictor has already made their move based on whether they predict you will take both boxes or only Box B. This explores the tension between Causal and Evidential decision theories, much like the logic of nuclear deterrence (MAD).",
+    betType: 'reflex',
+    buyInAmount: 100,
+    buyInCurrency: 'KSH',
+    category: 'social',
+    tags: ['philosophy', 'game-theory', 'reflex', 'newcomb', 'deterrence'],
+    isFeatured: true,
+    isTrending: true,
+    isRecurring: false,
+    closeDaysFromNow: 30,
+    mediaUrl: 'https://images.unsplash.com/photo-1518133910546-b6c2fb7d79e3?w=1200&q=80', // Books/Knowledge
+    outcomes: [
+      { optionText: 'One-Box (Box B only)', mediaUrl: 'https://img.icons8.com/emoji/96/package.png', mediaType: 'image' },
+      { optionText: 'Two-Box (Box A + Box B)', mediaUrl: 'https://img.icons8.com/emoji/96/box-is-open.png', mediaType: 'image' },
+    ],
+  },
   // ─── CONSENSUS ──────────────────────────────────────────────────────────────
   {
     title: 'Will NVIDIA stock close above $150 by March 31, 2026?',
@@ -609,6 +631,7 @@ async function seedMarkets() {
         tags: seed.tags,
         isFeatured: seed.isFeatured ?? false,
         isRecurring: seed.isRecurring ?? false,
+        isTrending: seed.isTrending ?? false,
         buyInAmount: seed.buyInAmount,
         buyInCurrency: seed.buyInCurrency,
         marketDuration: 'daily',
@@ -628,6 +651,7 @@ async function seedMarkets() {
         })),
         mediaUrl: seed.mediaUrl,
         mediaType: seed.mediaUrl ? 'image' : 'none',
+        scenario: seed.scenario,
         regionsAllowed: [],
         regionsBlocked: [],
         ageRestriction: 18,
