@@ -63,14 +63,20 @@ export class MarketService {
     const {
       status,
       type,
+      betType,
       tag,
+      tags,
+      category,
+      isFeatured,
+      isTrending,
+      isRecurring,
       search,
       includeDeleted = 'false',
       limit = 20,
       offset = 0,
     } = query;
 
-    const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 200);
+    const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 1000);
     const safeOffset = Math.max(Number(offset) || 0, 0);
 
     const filter: Record<string, any> = {};
@@ -78,8 +84,20 @@ export class MarketService {
       filter.isDeleted = { $ne: true };
     }
     if (status) filter.status = status;
-    if (type) filter.betType = type;
-    if (tag) filter.tags = tag;
+    
+    // Support both 'type' and 'betType' query params
+    const resolvedType = betType || type;
+    if (resolvedType) filter.betType = resolvedType;
+    
+    // Support both 'tag' and 'tags' query params
+    const resolvedTag = tags || tag;
+    if (resolvedTag) filter.tags = resolvedTag;
+
+    if (category) filter.category = category;
+    if (isFeatured !== undefined) filter.isFeatured = isFeatured === 'true';
+    if (isTrending !== undefined) filter.isTrending = isTrending === 'true';
+    if (isRecurring !== undefined) filter.isRecurring = isRecurring === 'true';
+
     if (search) {
       const regex = new RegExp(search, 'i');
       filter.$or = [{ title: regex }, { description: regex }];
