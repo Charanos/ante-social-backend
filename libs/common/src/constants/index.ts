@@ -189,4 +189,5 @@ export const KAFKA_TOPICS = {
   USER_ACTIVITY: 'user.activity',
   NOTIFICATION_DISPATCH: 'notification.dispatch',
   COMPLIANCE_FLAGS: 'compliance.flags',
+  COMMENT_EVENTS: 'comment.events',
 } as const;

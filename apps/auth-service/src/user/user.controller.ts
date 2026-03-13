@@ -1,6 +1,6 @@
-import { Controller, Get, Patch, Body, Param, Query, UseGuards, Delete } from '@nestjs/common';
+import { Controller, Get, Patch, Body, Param, Query, UseGuards, Delete, Post } from '@nestjs/common';
 import { UserService } from './user.service';
-import { JwtAuthGuard, CurrentUser } from '@app/common';
+import { JwtAuthGuard, CurrentUser, RolesGuard, Roles, UserRole } from '@app/common';
 import { UserDocument } from '@app/database';
 import { SkipThrottle } from '@nestjs/throttler';
 
@@ -58,5 +58,19 @@ export class UserController {
   @Get('users/:username/stats')
   async getPublicStats(@Param('username') username: string) {
     return this.userService.getPublicStats(username);
+  }
+
+  @Post('users/:id/ban')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  async banUser(@Param('id') id: string, @Body('reason') reason: string) {
+    return this.userService.banUser(id, reason);
+  }
+
+  @Post('users/:id/unban')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  async unbanUser(@Param('id') id: string) {
+    return this.userService.unbanUser(id);
   }
 }

@@ -24,6 +24,7 @@ export {
 export { Blog, BlogSchema, BlogDocument } from './schemas/blog.schema';
 export { NewsletterSubscriber, NewsletterSubscriberSchema, NewsletterSubscriberDocument } from './schemas/newsletter-subscriber.schema';
 export { LandingPage, LandingPageSchema, LandingPageDocument } from './schemas/landing-page.schema';
+export { MarketComment, MarketCommentSchema, MarketCommentDocument } from './schemas/market-comment.schema';
 
 // Repositories
 export * from './repositories';

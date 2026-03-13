@@ -221,9 +221,29 @@ export class UserService {
     return { data: activities, meta: { total, limit, offset } };
   }
 
+  async banUser(userId: string, reason: string) {
+    const user = await this.userModel.findByIdAndUpdate(
+      userId,
+      { isBanned: true, banReason: reason },
+      { new: true }
+    );
+    if (!user) throw new NotFoundException('User not found');
+    return { success: true, isBanned: true };
+  }
+
+  async unbanUser(userId: string) {
+    const user = await this.userModel.findByIdAndUpdate(
+      userId,
+      { isBanned: false, banReason: undefined },
+      { new: true }
+    );
+    if (!user) throw new NotFoundException('User not found');
+    return { success: true, isBanned: false };
+  }
+
   private findPublicUser(identifier: string) {
     const baseSelect =
-      'username fullName bio avatarUrl tier role reputationScore signalAccuracy totalPositions positionsWon positionsLost activeDays followersCount followingCount groupMemberships isVerified createdAt';
+      'username fullName bio avatarUrl tier role reputationScore signalAccuracy totalPositions positionsWon positionsLost activeDays followersCount followingCount groupMemberships isVerified createdAt isBanned';
 
     if (Types.ObjectId.isValid(identifier)) {
       return this.userModel.findById(identifier).select(baseSelect).exec();

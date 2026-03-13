@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
+import { MongooseModule } from '@nestjs/mongoose';
 import { MarketService } from './market.service';
 import { MarketController } from './market.controller';
+import { CommentService } from './comment.service';
 import { PredictionService } from './prediction.service';
 import { PredictionController } from './prediction.controller';
-import { DatabaseModule } from '@app/database';
+import { DatabaseModule, MarketComment, MarketCommentSchema } from '@app/database';
 import { KafkaModule } from '@app/kafka';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -12,8 +14,11 @@ import { SettlementDispatcher } from '../settlement/settlement.dispatcher';
 
 @Module({
   imports: [
-    DatabaseModule, 
+    DatabaseModule,
     KafkaModule,
+    MongooseModule.forFeature([
+      { name: MarketComment.name, schema: MarketCommentSchema },
+    ]),
     ClientsModule.registerAsync([
       {
         name: 'WALLET_SERVICE',
@@ -36,6 +41,7 @@ import { SettlementDispatcher } from '../settlement/settlement.dispatcher';
   providers: [
     MarketService,
     PredictionService,
+    CommentService,
     MarketCloseScheduler,
     SettlementDispatcher,
   ],

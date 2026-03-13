@@ -52,6 +52,16 @@ export class WsBroadcastConsumer {
     await this.processNotificationDispatch(data, 'notification.dispatch');
   }
 
+  @EventPattern('comment.events')
+  async handleCommentEvent(@Payload() data: any) {
+    await this.processCommentEvent(data, 'comment.events');
+  }
+
+  @EventPattern('comment.events.retry')
+  async handleCommentEventRetry(@Payload() data: any) {
+    await this.processCommentEvent(data, 'comment.events');
+  }
+
   private async processMarketEvent(data: any, topic: string) {
     await this.withRetryDlq(topic, data, async () => {
       const payload = data.payload || data;
@@ -119,6 +129,21 @@ export class WsBroadcastConsumer {
           message: payload.message,
           type: payload.type,
           actionUrl: payload.actionUrl,
+        });
+      }
+    });
+  }
+
+  private async processCommentEvent(data: any, topic: string) {
+    await this.withRetryDlq(topic, data, async () => {
+      const payload = data.payload || data;
+      const eventType = payload.eventType || data.eventName || 'unknown';
+      this.logger.log(`WS broadcast comment event: ${eventType}`);
+
+      if (payload.marketId) {
+        this.wsGateway.broadcastToRoom(`market:${payload.marketId}`, 'comment_event', {
+          eventType,
+          ...payload,
         });
       }
     });

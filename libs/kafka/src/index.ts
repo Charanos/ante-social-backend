@@ -12,3 +12,4 @@ export * from './events/market-events.event';
 export * from './events/notification-dispatch.event';
 export * from './events/bet-lifecycle.event';
 export * from './events/compliance-flag.event';
+export * from './events/comment-events';
