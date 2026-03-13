@@ -29,10 +29,9 @@ export class AuditLog {
   @Prop({ required: true })
   action!: string;
 
-  @Prop({ type: MongooseSchema.Types.Mixed })
+  @Prop({ type: MongooseSchema.Types.Mixed, required: false })
   beforeState?: any;
-
-  @Prop({ type: MongooseSchema.Types.Mixed })
+  @Prop({ type: MongooseSchema.Types.Mixed, required: false })
   afterState?: any;
 
   @Prop()
@@ -44,7 +43,7 @@ export class AuditLog {
   @Prop({ type: Types.ObjectId })
   relatedEntityId?: Types.ObjectId;
 
-  @Prop({ type: MongooseSchema.Types.Mixed })
+  @Prop({ type: MongooseSchema.Types.Mixed, required: false })
   metadata?: any;
 
   @Prop()
