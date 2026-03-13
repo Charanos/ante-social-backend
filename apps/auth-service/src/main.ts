@@ -12,6 +12,7 @@ import {
 } from '@app/common';
 import helmet from 'helmet';
 import compression from 'compression';
+import { json, urlencoded } from 'express';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -36,6 +37,8 @@ async function bootstrap() {
 
   app.use(helmet());
   app.use(compression());
+  app.use(json({ limit: '10mb' }));
+  app.use(urlencoded({ extended: true, limit: '10mb' }));
   app.use(sanitizeRequestMiddleware);
 
   // Global Pipes & Filters for HTTP
