@@ -94,9 +94,9 @@ export class GroupController {
     return this.groupService.createInvite(groupId, user._id.toString(), invitee);
   }
 
-  // ─── Group Bets ───────────────────────────────────
-  @Post(':id/bets')
-  async createBet(
+  // ─── Group Markets ─────────────────────────────────
+  @Post(':id/markets')
+  async createMarket(
     @Param('id') groupId: string,
     @Body() data: any,
     @CurrentUser() user: UserDocument,
@@ -104,54 +104,61 @@ export class GroupController {
     return this.groupService.createGroupBet(groupId, data, user._id.toString());
   }
 
-  @Get(':id/bets')
-  async getGroupBets(@Param('id') groupId: string) {
+  @Get(':id/markets')
+  async getGroupMarkets(@Param('id') groupId: string) {
     return this.groupService.getGroupBets(groupId);
   }
 
-  @Post(':id/bets/:betId/close')
-  async closeGroupBet(
+  @Post(':id/markets/:marketId/close')
+  async closeGroupMarket(
     @Param('id') groupId: string,
-    @Param('betId') betId: string,
+    @Param('marketId') marketId: string,
     @CurrentUser() user: UserDocument,
   ) {
-    return this.groupService.closeGroupBet(groupId, betId, user._id.toString());
+    return this.groupService.closeGroupBet(groupId, marketId, user._id.toString());
   }
 
-  @Delete(':id/bets/:betId')
-  async deleteGroupBet(
+  @Delete(':id/markets/:marketId')
+  async deleteGroupMarket(
     @Param('id') groupId: string,
-    @Param('betId') betId: string,
+    @Param('marketId') marketId: string,
     @CurrentUser() user: UserDocument,
   ) {
-    return this.groupService.deleteGroupBet(groupId, betId, user._id.toString());
+    return this.groupService.deleteGroupBet(groupId, marketId, user._id.toString());
   }
 
-  @Post('bets/:betId/join')
-  async joinBet(
-    @Param('betId') betId: string,
+  @Post('markets/:marketId/join')
+  async joinMarket(
+    @Param('marketId') marketId: string,
     @Body('selectedOption') selectedOption: string,
     @CurrentUser() user: UserDocument,
   ) {
-    return this.groupService.joinBet(betId, selectedOption, user._id.toString());
+    return this.groupService.joinBet(marketId, selectedOption, user._id.toString());
   }
 
-  @Post('bets/:betId/declare')
-  async declareWinner(
-    @Param('betId') betId: string,
+  @Post('markets/:marketId/declare')
+  async declareMarketOutcome(
+    @Param('marketId') marketId: string,
     @Body('winnerId') winnerId: string,
     @CurrentUser() user: UserDocument,
   ) {
-    return this.groupService.declareWinner(betId, winnerId, user._id.toString());
+    return this.groupService.declareWinner(marketId, winnerId, user._id.toString());
   }
 
-  @Post('bets/:betId/confirm')
-  async confirmResult(@Param('betId') betId: string, @CurrentUser() user: UserDocument) {
-    return this.groupService.confirmResult(betId, user._id.toString());
+  @Post('markets/:marketId/confirm')
+  async confirmMarketOutcome(
+    @Param('marketId') marketId: string,
+    @CurrentUser() user: UserDocument,
+  ) {
+    return this.groupService.confirmResult(marketId, user._id.toString());
   }
 
-  @Post('bets/:betId/disagree')
-  async disagreeResult(@Param('betId') betId: string, @CurrentUser() user: UserDocument) {
-    return this.groupService.disagreeResult(betId, user._id.toString());
+  @Post('markets/:marketId/disagree')
+  async disagreeMarketOutcome(
+    @Param('marketId') marketId: string,
+    @CurrentUser() user: UserDocument,
+  ) {
+    return this.groupService.disagreeResult(marketId, user._id.toString());
   }
+
 }

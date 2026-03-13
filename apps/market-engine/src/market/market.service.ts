@@ -26,17 +26,22 @@ export class MarketService {
       throw new BadRequestException('At least two outcomes are required');
     }
 
-    const normalizedBetType =
-      (createMarketDto.betType as string) === 'syndicate'
+    const requestedMarketType =
+      createMarketDto.marketType || createMarketDto.betType;
+    if (!requestedMarketType) {
+      throw new BadRequestException('marketType is required');
+    }
+    const normalizedMarketType =
+      (requestedMarketType as string) === 'syndicate'
         ? 'betrayal'
-        : createMarketDto.betType;
+        : requestedMarketType;
 
     const slug = await this.ensureUniqueMarketSlug(createMarketDto.title);
 
     const market = new this.marketModel({
       ...createMarketDto,
       slug,
-      betType: normalizedBetType,
+      betType: normalizedMarketType,
       minimumTier: normalizeUserTier(createMarketDto.minimumTier || UserTier.NOVICE),
       createdBy: new Types.ObjectId(userId),
       status: createMarketDto.scheduledPublishTime ? MarketStatus.SCHEDULED : MarketStatus.ACTIVE,
@@ -64,6 +69,7 @@ export class MarketService {
       status,
       type,
       betType,
+      marketType,
       tag,
       tags,
       category,
@@ -85,8 +91,8 @@ export class MarketService {
     }
     if (status) filter.status = status;
     
-    // Support both 'type' and 'betType' query params
-    const resolvedType = betType || type;
+    // Support both 'type' and 'marketType' query params
+    const resolvedType = marketType || betType || type;
     if (resolvedType) filter.betType = resolvedType;
     
     // Support both 'tag' and 'tags' query params
@@ -145,8 +151,9 @@ export class MarketService {
     if (updates.isFeatured !== undefined) updateDoc.isFeatured = updates.isFeatured;
     if (updates.isRecurring !== undefined) updateDoc.isRecurring = updates.isRecurring;
     if (updates.isTrending !== undefined) updateDoc.isTrending = updates.isTrending;
-    if (updates.betType !== undefined) {
-      updateDoc.betType = (updates.betType as string) === 'syndicate' ? 'betrayal' : updates.betType;
+    if (updates.marketType !== undefined || updates.betType !== undefined) {
+      const nextType = updates.marketType ?? updates.betType;
+      updateDoc.betType = (nextType as string) === 'syndicate' ? 'betrayal' : nextType;
     }
     if (updates.buyInAmount !== undefined) updateDoc.buyInAmount = updates.buyInAmount;
     if (updates.buyInCurrency !== undefined) updateDoc.buyInCurrency = updates.buyInCurrency;

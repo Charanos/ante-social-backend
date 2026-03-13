@@ -360,7 +360,7 @@ export class PredictionService {
     const usedToday = result[0]?.total || 0;
     if (usedToday + requestedAmount > dailyBetLimit) {
       throw new BadRequestException(
-        `Daily bet volume limit exceeded. Used: ${usedToday}, Limit: ${dailyBetLimit}`,
+        `Daily position volume limit exceeded. Used: ${usedToday}, Limit: ${dailyBetLimit}`,
       );
     }
   }

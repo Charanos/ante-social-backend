@@ -101,12 +101,12 @@ export class NotificationConsumer {
       const amount = payload.amount;
       if (!userId) return;
 
-      this.logger.log(`Processing bet.placed for ${userId}`);
+      this.logger.log(`Processing position placement for ${userId}`);
       await this.inAppService.create(
         userId,
         'Prediction Placed',
         `You placed a prediction of $${amount}`,
-        'bet_placed',
+        'position_opened',
       );
     });
   }

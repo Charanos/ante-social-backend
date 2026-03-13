@@ -20,6 +20,10 @@ import {
   ComplianceFlagDocument,
   AuditLog,
   AuditLogDocument,
+  Group,
+  GroupBet,
+  GroupBetDocument,
+  GroupDocument,
   FlagStatus,
   FlagReason,
   RecurringMarketTemplate,
@@ -116,6 +120,8 @@ export class AdminService {
     @InjectModel(NewsletterSubscriber.name)
     private newsletterSubscriberModel: Model<NewsletterSubscriberDocument>,
     @InjectModel(LandingPage.name) private landingPageModel: Model<LandingPageDocument>,
+    @InjectModel(Group.name) private groupModel: Model<GroupDocument>,
+    @InjectModel(GroupBet.name) private groupBetModel: Model<GroupBetDocument>,
     @Inject('KAFKA_SERVICE') private readonly kafkaClient: ClientKafka,
     @Inject('WALLET_SERVICE') private readonly walletClient: ClientProxy,
   ) {}
@@ -1782,14 +1788,16 @@ export class AdminService {
   // LANDING PAGE CMS
   // ═══════════════════════════════════════════════════════════════════════
 
-  async getLandingPageSettings() {
+  async getLandingPageSettings(key?: string) {
+    const normalizedKey = this.normalizeLandingPageKey(key);
+
     try {
-      let settings = await this.landingPageModel.findOne({ key: 'default' }).lean().exec();
+      let settings = await this.landingPageModel.findOne({ key: normalizedKey }).lean().exec();
       
       if (!settings) {
         // Return sensible defaults
         return {
-          key: 'default',
+          key: normalizedKey,
           hero: {},
           features: {},
           gameModes: {},
@@ -1807,39 +1815,61 @@ export class AdminService {
     }
   }
 
+  async createLandingPageSettings(payload: Record<string, any>, adminId: string) {
+    const normalizedKey = this.normalizeLandingPageKey(payload?.key);
+    const { $set, updatedSections } = this.pickLandingPageSections(payload);
+
+    if (updatedSections.length === 0) {
+      throw new BadRequestException('No valid fields to create');
+    }
+
+    try {
+      const existing = await this.landingPageModel.findOne({ key: normalizedKey }).lean().exec();
+      if (existing) {
+        throw new BadRequestException('Landing page settings already exist');
+      }
+
+      const settings = new this.landingPageModel({
+        key: normalizedKey,
+        ...$set,
+      });
+
+      await settings.save();
+
+      await this.logAudit('CREATE_LANDING_PAGE', 'landing-page', {
+        adminId,
+        entityType: 'content',
+        key: normalizedKey,
+        updatedSections,
+      });
+
+      return settings;
+    } catch (error: any) {
+      this.logger.error(`Error creating landing page settings: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
   async updateLandingPageSettings(updates: Record<string, any>, adminId: string) {
     try {
-      const allowed = [
-        'hero', 
-        'features', 
-        'gameModes', 
-        'testimonials', 
-        'hallOfFame', 
-        'currency', 
-        'socialProofStats'
-      ];
-      
-      const $set: Record<string, any> = {};
-      for (const key of allowed) {
-        if (updates[key] !== undefined) {
-          $set[key] = updates[key];
-        }
-      }
+      const normalizedKey = this.normalizeLandingPageKey(updates?.key);
+      const { $set, updatedSections } = this.pickLandingPageSections(updates);
 
       if (Object.keys($set).length === 0) {
         throw new BadRequestException('No valid fields to update');
       }
 
       const settings = await this.landingPageModel.findOneAndUpdate(
-        { key: 'default' },
-        { $set },
-        { new: true, upsert: true },
+        { key: normalizedKey },
+        { $set, $setOnInsert: { key: normalizedKey } },
+        { new: true, upsert: true }
       ).exec();
 
       await this.logAudit('UPDATE_LANDING_PAGE', 'landing-page', {
         adminId,
         entityType: 'content',
-        updatedSections: Object.keys($set),
+        key: normalizedKey,
+        updatedSections,
       });
 
       return settings;
@@ -1849,25 +1879,426 @@ export class AdminService {
     }
   }
 
+  async deleteLandingPageSettings(key: string | undefined, adminId: string) {
+    const normalizedKey = this.normalizeLandingPageKey(key);
+
+    try {
+      const deleted = await this.landingPageModel.findOneAndDelete({ key: normalizedKey }).exec();
+      if (!deleted) {
+        throw new NotFoundException('Landing page settings not found');
+      }
+
+      await this.logAudit('DELETE_LANDING_PAGE', 'landing-page', {
+        adminId,
+        entityType: 'content',
+        key: normalizedKey,
+      });
+
+      return { success: true, key: normalizedKey };
+    } catch (error: any) {
+      this.logger.error(`Error deleting landing page settings: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════════════
   // LEADERBOARD
   // ═══════════════════════════════════════════════════════════════════════
 
-  async getLeaderboard(limit = 10) {
+  async getLeaderboard(limit = 10, timePeriod?: string) {
     const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 50);
-    
+    const normalizedPeriod = String(timePeriod || 'all-time').toLowerCase();
+
+    if (normalizedPeriod === 'weekly' || normalizedPeriod === 'week') {
+      const weekly = await this.getWeeklyLeaderboard(safeLimit);
+      if (weekly.length > 0) {
+        return { data: weekly, meta: { timePeriod: 'weekly' } };
+      }
+    }
+
     const users = await this.userModel
       .find({ isBanned: { $ne: true }, isDeleted: { $ne: true } })
-      .select('username fullName avatarUrl reputationScore positionsWon positionsLost tier')
+      .select('username fullName avatarUrl reputationScore positionsWon positionsLost tier updatedAt')
       .sort({ reputationScore: -1 })
       .limit(safeLimit)
       .lean()
       .exec();
 
-    return { data: users };
+    return { data: users, meta: { timePeriod: 'all-time' } };
+  }
+
+  private async getWeeklyLeaderboard(limit: number) {
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const amountExpr = { $ifNull: ['$amountInSettlementCurrency', '$amount'] };
+
+    const rows = await this.transactionModel
+      .aggregate([
+        {
+          $match: {
+            status: 'completed',
+            type: { $in: ['bet_placed', 'bet_payout'] },
+            createdAt: { $gte: since },
+          },
+        },
+        {
+          $group: {
+            _id: '$userId',
+            placedCount: {
+              $sum: { $cond: [{ $eq: ['$type', 'bet_placed'] }, 1, 0] },
+            },
+            payoutCount: {
+              $sum: { $cond: [{ $eq: ['$type', 'bet_payout'] }, 1, 0] },
+            },
+            placedAmount: {
+              $sum: { $cond: [{ $eq: ['$type', 'bet_placed'] }, amountExpr, 0] },
+            },
+            payoutAmount: {
+              $sum: { $cond: [{ $eq: ['$type', 'bet_payout'] }, amountExpr, 0] },
+            },
+            lastAt: { $max: '$createdAt' },
+          },
+        },
+        {
+          $addFields: {
+            weeklyPnl: { $subtract: ['$payoutAmount', '$placedAmount'] },
+          },
+        },
+        { $sort: { weeklyPnl: -1, payoutAmount: -1, placedCount: -1 } },
+        { $limit: limit },
+        {
+          $lookup: {
+            from: 'users',
+            localField: '_id',
+            foreignField: '_id',
+            as: 'user',
+          },
+        },
+        { $unwind: '$user' },
+        {
+          $match: {
+            'user.isBanned': { $ne: true },
+            'user.isDeleted': { $ne: true },
+          },
+        },
+        {
+          $project: {
+            _id: '$user._id',
+            username: '$user.username',
+            fullName: '$user.fullName',
+            avatarUrl: '$user.avatarUrl',
+            reputationScore: '$user.reputationScore',
+            positionsWon: '$user.positionsWon',
+            positionsLost: '$user.positionsLost',
+            tier: '$user.tier',
+            updatedAt: '$user.updatedAt',
+            weeklyStats: {
+              placedCount: '$placedCount',
+              payoutCount: '$payoutCount',
+              placedAmount: '$placedAmount',
+              payoutAmount: '$payoutAmount',
+              pnl: '$weeklyPnl',
+              lastAt: '$lastAt',
+            },
+          },
+        },
+      ])
+      .exec();
+
+    return rows || [];
+  }
+
+  async getPublicDepositMetrics() {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const now = new Date();
+
+    const rows = await this.transactionModel
+      .aggregate([
+        {
+          $match: {
+            type: 'deposit',
+            status: 'completed',
+            createdAt: { $gte: since },
+          },
+        },
+        {
+          $group: {
+            _id: { provider: '$paymentProvider', currency: '$currency' },
+            amount: { $sum: '$amount' },
+            count: { $sum: 1 },
+            latest: { $max: '$createdAt' },
+          },
+        },
+      ])
+      .exec();
+
+    const normalizeProvider = (value?: string) => {
+      const provider = String(value || '').toLowerCase();
+      if (provider === 'mpesa') return 'mpesa';
+      if (provider === 'nowpayments') return 'crypto';
+      if (provider.includes('crypto')) return 'crypto';
+      return provider || 'unknown';
+    };
+
+    let mpesaAmount = 0;
+    let mpesaCount = 0;
+    let mpesaLast: Date | null = null;
+    let cryptoAmount = 0;
+    let cryptoCount = 0;
+    let cryptoLast: Date | null = null;
+    let totalCount = 0;
+
+    for (const row of rows || []) {
+      const provider = normalizeProvider(row?._id?.provider);
+      const amount = Number(row?.amount || 0);
+      const count = Number(row?.count || 0);
+      totalCount += count;
+
+      if (provider === 'mpesa') {
+        mpesaAmount += amount;
+        mpesaCount += count;
+        if (row?.latest && (!mpesaLast || row.latest > mpesaLast)) {
+          mpesaLast = row.latest;
+        }
+      } else if (provider === 'crypto') {
+        cryptoAmount += amount;
+        cryptoCount += count;
+        if (row?.latest && (!cryptoLast || row.latest > cryptoLast)) {
+          cryptoLast = row.latest;
+        }
+      }
+    }
+
+    return {
+      range: { from: since.toISOString(), to: now.toISOString() },
+      totals: {
+        mpesa: {
+          amount: mpesaAmount,
+          currency: 'KSH',
+          count: mpesaCount,
+          lastAt: mpesaLast?.toISOString() || null,
+        },
+        crypto: {
+          amount: cryptoAmount,
+          currency: 'USD',
+          count: cryptoCount,
+          lastAt: cryptoLast?.toISOString() || null,
+        },
+      },
+      totalCount,
+    };
+  }
+
+  async getPublicLandingMetrics() {
+    const [
+      totalUsers,
+      verifiedUsers,
+      highTierUsers,
+      totalMarkets,
+      activeMarkets,
+      totalGroups,
+      participantsAgg,
+      totalVolumeAgg,
+    ] = await Promise.all([
+      this.userModel.countDocuments({ isDeleted: { $ne: true } }),
+      this.userModel.countDocuments({ isVerified: true, isDeleted: { $ne: true } }),
+      this.userModel.countDocuments({
+        tier: { $in: ['strategist', 'high_roller'] },
+        isDeleted: { $ne: true },
+      }),
+      this.marketModel.countDocuments({ isDeleted: { $ne: true } }),
+      this.marketModel.countDocuments({ status: 'active', isDeleted: { $ne: true } }),
+      this.groupModel.countDocuments({ isSuspended: { $ne: true } }),
+      this.marketModel
+        .aggregate([
+          { $match: { isDeleted: { $ne: true } } },
+          { $group: { _id: null, total: { $sum: '$participantCount' } } },
+        ])
+        .then((res) => Number(res?.[0]?.total || 0)),
+      this.transactionModel
+        .aggregate([
+          { $match: { type: 'bet_placed' } },
+          { $group: { _id: null, total: { $sum: '$amount' } } },
+        ])
+        .then((res) => Number(res?.[0]?.total || 0)),
+    ]);
+
+    return {
+      updatedAt: new Date().toISOString(),
+      totals: {
+        users: totalUsers,
+        verifiedUsers,
+        highTierUsers,
+        markets: totalMarkets,
+        activeMarkets,
+        groups: totalGroups,
+        participants: participantsAgg,
+        totalVolume: totalVolumeAgg,
+      },
+    };
   }
 
   // ═══════════════════════════════════════════════════════════════════════
+  // GROUP MANAGEMENT
+  async getGroups(limit = 20, offset = 0, search?: string, status?: string) {
+    const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 200);
+    const safeOffset = Math.max(Number(offset) || 0, 0);
+
+    const filter: Record<string, any> = {};
+    if (search) {
+      const regex = new RegExp(search, 'i');
+      filter.$or = [{ name: regex }, { description: regex }, { category: regex }];
+    }
+    if (status === 'suspended') {
+      filter.isSuspended = true;
+    } else if (status === 'active') {
+      filter.isSuspended = { $ne: true };
+    }
+
+    const [groups, total] = await Promise.all([
+      this.groupModel
+        .find(filter)
+        .sort({ memberCount: -1, createdAt: -1 })
+        .skip(safeOffset)
+        .limit(safeLimit)
+        .populate('createdBy', 'username fullName avatarUrl')
+        .lean()
+        .exec(),
+      this.groupModel.countDocuments(filter),
+    ]);
+
+    return { data: groups, meta: { total, limit: safeLimit, offset: safeOffset } };
+  }
+
+  async getGroupById(groupId: string) {
+    const group = await this.findGroupByIdentifier(groupId);
+    if (!group) throw new NotFoundException('Group not found');
+
+    return this.groupModel
+      .findById(group._id)
+      .populate('createdBy', 'username fullName avatarUrl')
+      .populate('members.userId', 'username fullName avatarUrl')
+      .lean()
+      .exec();
+  }
+
+  async getGroupMarkets(groupId: string, limit = 50, offset = 0) {
+    const group = await this.findGroupByIdentifier(groupId);
+    if (!group) throw new NotFoundException('Group not found');
+
+    const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
+    const safeOffset = Math.max(Number(offset) || 0, 0);
+
+    return this.groupBetModel
+      .find({ groupId: group._id })
+      .sort({ createdAt: -1 })
+      .skip(safeOffset)
+      .limit(safeLimit)
+      .populate('participants.userId', 'username fullName avatarUrl')
+      .lean()
+      .exec();
+  }
+
+  async updateGroupMemberRoleAsAdmin(groupId: string, memberId: string, role: string, adminId: string) {
+    const group = await this.findGroupByIdentifier(groupId);
+    if (!group) throw new NotFoundException('Group not found');
+
+    const normalizedRole = String(role || '').toLowerCase();
+    if (!['admin', 'moderator', 'member'].includes(normalizedRole)) {
+      throw new BadRequestException('Invalid role');
+    }
+
+    const member = group.members.find((entry) => entry.userId.toString() === memberId);
+    if (!member) throw new NotFoundException('Member not found');
+
+    if (group.createdBy.toString() === memberId && normalizedRole !== 'admin') {
+      throw new BadRequestException('Cannot demote group creator');
+    }
+
+    member.role = normalizedRole;
+    await group.save();
+    await this.logAudit(
+      'GROUP_ROLE_OVERRIDE',
+      group._id.toString(),
+      { memberId, role: normalizedRole },
+      adminId,
+    );
+
+    return group;
+  }
+
+  async suspendGroup(groupId: string, reason: string | undefined, adminId: string) {
+    const group = await this.findGroupByIdentifier(groupId);
+    if (!group) throw new NotFoundException('Group not found');
+
+    if (!group.isSuspended) {
+      group.isSuspended = true;
+      group.suspendedAt = new Date();
+      group.suspendedBy = new Types.ObjectId(adminId);
+      group.suspensionReason = reason || undefined;
+      await group.save();
+    }
+
+    await this.logAudit('GROUP_SUSPENDED', group._id.toString(), { reason }, adminId);
+    return group;
+  }
+
+  async unsuspendGroup(groupId: string, adminId: string) {
+    const group = await this.findGroupByIdentifier(groupId);
+    if (!group) throw new NotFoundException('Group not found');
+
+    if (group.isSuspended) {
+      group.isSuspended = false;
+      group.suspendedAt = undefined;
+      group.suspendedBy = undefined;
+      group.suspensionReason = undefined;
+      await group.save();
+    }
+
+    await this.logAudit('GROUP_UNSUSPENDED', group._id.toString(), {}, adminId);
+    return group;
+  }
+
+  async deleteGroupAsAdmin(groupId: string, adminId: string) {
+    const group = await this.findGroupByIdentifier(groupId);
+    if (!group) throw new NotFoundException('Group not found');
+
+    const unresolvedCount = await this.groupBetModel.countDocuments({
+      groupId: group._id,
+      status: { $nin: ['settled', 'cancelled'] },
+    });
+    if (unresolvedCount > 0) {
+      throw new BadRequestException('Resolve all group markets before deleting this group');
+    }
+
+    await this.groupBetModel.deleteMany({ groupId: group._id }).exec();
+    await this.groupModel.deleteOne({ _id: group._id }).exec();
+
+    const memberIds = Array.from(
+      new Set(group.members.map((member) => member.userId?.toString()).filter(Boolean)),
+    );
+    if (memberIds.length) {
+      await this.userModel.updateMany(
+        { _id: { $in: memberIds.map((id) => new Types.ObjectId(id)) } },
+        { $inc: { groupMemberships: -1 } },
+      );
+    }
+
+    await this.logAudit('GROUP_DELETED', group._id.toString(), {}, adminId);
+    return { success: true, id: groupId };
+  }
+
+  private async findGroupByIdentifier(identifier: string) {
+    const normalized = String(identifier || '').trim();
+    return this.groupModel
+      .findOne({
+        $or: [
+          ...(Types.ObjectId.isValid(normalized) ? [{ _id: new Types.ObjectId(normalized) }] : []),
+          { slug: normalized.toLowerCase() },
+        ],
+      })
+      .exec();
+  }
+
   // HELPER METHODS
   // ═══════════════════════════════════════════════════════════════════════
 
@@ -2017,5 +2448,37 @@ export class AdminService {
       return undefined;
     }
     return new Types.ObjectId(value);
+  }
+
+  private normalizeLandingPageKey(value?: string) {
+    const raw = String(value || 'default').trim();
+    if (!raw) return 'default';
+
+    if (!/^[a-z0-9_-]+$/i.test(raw)) {
+      throw new BadRequestException('Invalid landing page key');
+    }
+
+    return raw;
+  }
+
+  private pickLandingPageSections(updates: Record<string, any>) {
+    const allowed = [
+      'hero',
+      'features',
+      'gameModes',
+      'testimonials',
+      'hallOfFame',
+      'currency',
+      'socialProofStats',
+    ];
+
+    const $set: Record<string, any> = {};
+    for (const key of allowed) {
+      if (updates && updates[key] !== undefined) {
+        $set[key] = updates[key];
+      }
+    }
+
+    return { $set, updatedSections: Object.keys($set) };
   }
 }

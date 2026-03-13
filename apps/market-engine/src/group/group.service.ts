@@ -43,7 +43,7 @@ export class GroupService {
   }
 
   async searchGroups(search?: string, limit = 20, offset = 0) {
-    const filter: any = { isPublic: true };
+    const filter: any = { isPublic: true, isSuspended: { $ne: true } };
     if (search) {
       filter.name = { $regex: search, $options: 'i' };
     }
@@ -65,6 +65,7 @@ export class GroupService {
   async joinGroup(groupId: string, userId: string, inviteCode?: string) {
     const group = await this.findGroupByIdentifier(groupId);
     if (!group) throw new NotFoundException('Group not found');
+    this.assertGroupActive(group);
 
     if (!group.isPublic) {
       const normalizedCode = String(inviteCode || '').trim().toUpperCase();
@@ -129,6 +130,7 @@ export class GroupService {
   async createInvite(groupId: string, actorId: string, invitee?: string) {
     const group = await this.findGroupByIdentifier(groupId);
     if (!group) throw new NotFoundException('Group not found');
+    this.assertGroupActive(group);
 
     const actorMembership = group.members.some((member) => member.userId.toString() === actorId);
     const isOwner = group.createdBy.toString() === actorId;
@@ -188,6 +190,7 @@ export class GroupService {
   ) {
     const group = await this.findGroupByIdentifier(groupId);
     if (!group) throw new NotFoundException('Group not found');
+    this.assertGroupActive(group);
 
     const actorMember = group.members.find((member) => member.userId.toString() === actorId);
     const isOwner = group.createdBy.toString() === actorId;
@@ -291,10 +294,11 @@ export class GroupService {
     return group;
   }
 
-  // Group bets
+  // Group markets
   async createGroupBet(groupId: string, data: any, userId: string) {
     const group = await this.findGroupByIdentifier(groupId);
     if (!group) throw new NotFoundException('Group not found');
+    this.assertGroupActive(group);
 
     const actorMember = group.members.find((member) => member.userId.toString() === userId);
     const isOwner = group.createdBy.toString() === userId;
@@ -317,35 +321,66 @@ export class GroupService {
     }
     const betSlug = await this.ensureUniqueGroupBetSlug(group._id.toString(), title);
 
-    const normalizedOptions = Array.isArray(data.options)
-      ? data.options
-          .map((option: unknown) => String(option || '').trim())
-          .filter(Boolean)
-      : [];
-    const buyInAmount = Number(data.buyInAmount || 0);
-    if (!Number.isFinite(buyInAmount) || buyInAmount <= 0) {
-      throw new BadRequestException('buyInAmount must be greater than 0');
-    }
-    if (marketType === 'odd_one_out' && normalizedOptions.length < 3) {
-      throw new BadRequestException('Odd-one-out markets require at least 3 options');
-    }
+      const normalizedOptions = Array.isArray(data.options)
+        ? data.options
+            .map((option: unknown) => String(option || '').trim())
+            .filter(Boolean)
+        : [];
+      const buyInAmount = Number(data.buyInAmount || 0);
+      if (!Number.isFinite(buyInAmount) || buyInAmount <= 0) {
+        throw new BadRequestException('buyInAmount must be greater than 0');
+      }
+      if (marketType === 'odd_one_out' && normalizedOptions.length < 3) {
+        throw new BadRequestException('Odd-one-out markets require at least 3 options');
+      }
 
-    const bet = new this.groupBetModel({
-      groupId: group._id,
-      createdBy: userId,
-      title,
+      const closeTimeRaw = data.closeTime || data.close_time;
+      const closeTime = closeTimeRaw ? new Date(closeTimeRaw) : null;
+      if (!closeTime || Number.isNaN(closeTime.getTime())) {
+        throw new BadRequestException('closeTime is required');
+      }
+      if (closeTime.getTime() <= Date.now()) {
+        throw new BadRequestException('closeTime must be in the future');
+      }
+
+      const settlementTimeRaw = data.settlementTime || data.settlement_time;
+      const settlementTime = settlementTimeRaw
+        ? new Date(settlementTimeRaw)
+        : new Date(closeTime.getTime() + 60 * 60 * 1000);
+      if (Number.isNaN(settlementTime.getTime())) {
+        throw new BadRequestException('settlementTime is invalid');
+      }
+      if (settlementTime.getTime() < closeTime.getTime()) {
+        throw new BadRequestException('settlementTime must be after closeTime');
+      }
+
+      const selectedOption = data.selectedOption ? String(data.selectedOption).trim() : '';
+      if (
+        selectedOption &&
+        normalizedOptions.length > 0 &&
+        !normalizedOptions.includes(selectedOption)
+      ) {
+        throw new BadRequestException('selectedOption must match one of the options');
+      }
+
+      const bet = new this.groupBetModel({
+        groupId: group._id,
+        createdBy: userId,
+        title,
       slug: betSlug,
       description: String(data.description || '').trim(),
       marketType,
-      marketSubtype,
-      buyInAmount,
-      options: normalizedOptions,
-      participants: [],
-      status: 'active',
-    });
+        marketSubtype,
+        buyInAmount,
+        closeTime,
+        settlementTime,
+        options: normalizedOptions,
+        participants: [],
+        status: 'active',
+      });
 
-    await this.joinBetInternal(bet, userId, data.selectedOption);
-    await this.debitWallet(userId, data.buyInAmount, `Group Bet: ${data.title}`);
+      await this.joinBetInternal(bet, userId, selectedOption || undefined);
+      await this.debitWallet(userId, buyInAmount, `Group Market: ${data.title}`);
 
     group.activeBetsCount += 1;
     group.totalBets += 1;
@@ -373,11 +408,14 @@ export class GroupService {
 
   async joinBet(betId: string, selectedOption: string, userId: string) {
     const bet = await this.groupBetModel.findById(betId);
-    if (!bet) throw new NotFoundException('Bet not found');
-    if (bet.status !== 'active') throw new BadRequestException('Bet is not active');
+    if (!bet) throw new NotFoundException('Market not found');
+    if (bet.status !== 'active') throw new BadRequestException('Market is not active');
+    if (bet.closeTime && new Date() > bet.closeTime) {
+      throw new BadRequestException('Market is closed');
+    }
 
     const amount = bet.buyInAmount;
-    await this.debitWallet(userId, amount, `Join Group Bet: ${bet.title}`);
+    await this.debitWallet(userId, amount, `Join Group Market: ${bet.title}`);
     await this.joinBetInternal(bet, userId, selectedOption);
     this.dispatchNotification(
       userId,
@@ -399,9 +437,9 @@ export class GroupService {
   // Settlement
   async declareWinner(betId: string, winnerId: string, userId: string) {
     const bet = await this.groupBetModel.findById(betId);
-    if (!bet) throw new NotFoundException('Bet not found');
+    if (!bet) throw new NotFoundException('Market not found');
     if (bet.createdBy.toString() !== userId) throw new BadRequestException('Only creator can declare winner');
-    if (bet.status !== 'active') throw new BadRequestException('Bet not active');
+    if (bet.status !== 'active') throw new BadRequestException('Market not active');
 
     bet.status = 'pending_confirmation';
     bet.declaredWinnerId = new Types.ObjectId(winnerId);
@@ -426,7 +464,7 @@ export class GroupService {
       { arrayFilters: [{ 'elem.userId': userId }], new: true },
     );
 
-    if (!bet) throw new NotFoundException('Bet not found or not in pending state');
+    if (!bet) throw new NotFoundException('Market not found or not in pending state');
 
     if (bet.confirmations >= bet.participants.length / 2) {
       await this.settleGroupBet(bet);
@@ -442,7 +480,7 @@ export class GroupService {
       { arrayFilters: [{ 'elem.userId': userId }], new: true },
     );
 
-    if (!bet) throw new NotFoundException('Bet not found');
+    if (!bet) throw new NotFoundException('Market not found');
 
     if (bet.disagreements >= bet.participants.length * 0.3) {
       bet.status = 'disputed';
@@ -465,7 +503,7 @@ export class GroupService {
     this.assertCanManageGroup(group, actorId);
 
     const bet = await this.findGroupBetByIdentifier(group._id.toString(), betId);
-    if (!bet) throw new NotFoundException('Bet not found');
+    if (!bet) throw new NotFoundException('Market not found');
 
     if (bet.status === 'settled' || bet.status === 'cancelled') {
       return bet;
@@ -498,7 +536,7 @@ export class GroupService {
     this.assertCanManageGroup(group, actorId);
 
     const bet = await this.findGroupBetByIdentifier(group._id.toString(), betId);
-    if (!bet) throw new NotFoundException('Bet not found');
+    if (!bet) throw new NotFoundException('Market not found');
 
     if (!['settled', 'cancelled'].includes(bet.status)) {
       throw new BadRequestException('Close the market before deleting it');
@@ -562,6 +600,12 @@ export class GroupService {
   }
 
   // Internal helpers
+  private assertGroupActive(group: GroupDocument) {
+    if (group.isSuspended) {
+      throw new BadRequestException('Group is currently suspended');
+    }
+  }
+
   private async joinBetInternal(bet: GroupBetDocument, userId: string, selectedOption?: string) {
     bet.participants.push({
       userId: new Types.ObjectId(userId) as any,
@@ -612,7 +656,7 @@ export class GroupService {
             userId: winnerId,
             amount: prize,
             currency: 'KSH',
-            description: `Group Bet Win: ${bet.title}`,
+            description: `Group Market Win: ${bet.title}`,
             type: 'bet_payout',
           }).pipe(timeout(8000)),
         );

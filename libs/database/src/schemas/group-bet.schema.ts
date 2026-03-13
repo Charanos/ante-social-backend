@@ -52,6 +52,12 @@ export class GroupBet {
   @Prop({ required: true })
   buyInAmount!: number;
 
+  @Prop({ type: Date })
+  closeTime?: Date;
+
+  @Prop({ type: Date })
+  settlementTime?: Date;
+
   @Prop({
     default: 'active',
     enum: ['active', 'pending_confirmation', 'disputed', 'settled', 'cancelled'],

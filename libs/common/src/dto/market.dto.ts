@@ -72,9 +72,15 @@ export class CreateMarketDto {
   @IsBoolean()
   isTrending?: boolean;
 
+  @IsOptional()
   @IsString()
   @IsIn([...Object.values(MarketType), 'syndicate'])
-  betType!: MarketType | 'syndicate';
+  marketType?: MarketType | 'syndicate';
+
+  @IsOptional()
+  @IsString()
+  @IsIn([...Object.values(MarketType), 'syndicate'])
+  betType?: MarketType | 'syndicate';
 
   @IsNumber()
   @Min(0.01)

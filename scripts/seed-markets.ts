@@ -224,7 +224,7 @@ const SEED_MARKETS: SeedMarket[] = [
   },
   {
     title: 'Which party wins US House majority in 2026 midterms? (Minority wins big)',
-    description: 'Contrarian bet on 2026 US midterm results. Smaller winning group gets exponential returns.',
+    description: 'Contrarian forecast on 2026 US midterm results. Smaller winning group gets exponential returns.',
     betType: 'reflex',
     buyInAmount: 150,
     buyInCurrency: 'KSH',
@@ -476,7 +476,7 @@ const SEED_MARKETS: SeedMarket[] = [
   },
   {
     title: 'Haaland wins Golden Boot 2025/26 — Cooperate or Betray?',
-    description: 'Classic prisoner\'s dilemma in sports betting. Cooperators share, betrayers steal if correct.',
+    description: 'Classic prisoner\'s dilemma in sports forecasting. Cooperators share, betrayers steal if correct.',
     betType: 'betrayal',
     buyInAmount: 400,
     buyInCurrency: 'KSH',
@@ -576,7 +576,7 @@ const SEED_MARKETS: SeedMarket[] = [
   },
   {
     title: 'Nairobi housing prices by end of 2026 — Consensus vs contrarian',
-    description: 'Real estate divergence bet. Minority correct answer earns multiplied returns.',
+    description: 'Real estate divergence forecast. Minority correct answer earns multiplied returns.',
     betType: 'divergence',
     buyInAmount: 100,
     buyInCurrency: 'KSH',

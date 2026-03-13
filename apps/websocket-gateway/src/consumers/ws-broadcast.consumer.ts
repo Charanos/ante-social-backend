@@ -88,10 +88,10 @@ export class WsBroadcastConsumer {
   private async processBetPlacement(data: any, topic: string) {
     await this.withRetryDlq(topic, data, async () => {
       const payload = data.payload || data;
-      this.logger.log(`WS broadcast bet placement for market ${payload.marketId}`);
+    this.logger.log(`WS broadcast position placement for market ${payload.marketId}`);
 
       if (payload.marketId) {
-        this.wsGateway.broadcastToRoom(`market:${payload.marketId}`, 'bet_placed', {
+        this.wsGateway.broadcastToRoom(`market:${payload.marketId}`, 'position_opened', {
           marketId: payload.marketId,
           amount: payload.amount,
           outcomeId: payload.outcomeId,

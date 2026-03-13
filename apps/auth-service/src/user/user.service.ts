@@ -86,6 +86,12 @@ export class UserService {
       }
     }
 
+    if (Object.keys(allowed).length === 0) {
+      throw new BadRequestException('No valid fields to update');
+    }
+
+    allowed.updatedAt = new Date();
+
     const user = await this.userModel
       .findByIdAndUpdate(userId, allowed, { new: true })
       .select(

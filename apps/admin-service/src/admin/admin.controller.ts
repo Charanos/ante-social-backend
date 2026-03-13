@@ -88,6 +88,60 @@ export class AdminController {
     return this.adminService.updateUserTier(userId, tier);
   }
 
+  // ─── Group Governance ──────────────────────────────────────────
+  @Get('groups')
+  async getGroups(
+    @Query('limit') limit = 20,
+    @Query('offset') offset = 0,
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.adminService.getGroups(Number(limit), Number(offset), search, status);
+  }
+
+  @Get('groups/:id')
+  async getGroupById(@Param('id') id: string) {
+    return this.adminService.getGroupById(id);
+  }
+
+  @Get('groups/:id/markets')
+  async getGroupMarkets(
+    @Param('id') id: string,
+    @Query('limit') limit = 50,
+    @Query('offset') offset = 0,
+  ) {
+    return this.adminService.getGroupMarkets(id, Number(limit), Number(offset));
+  }
+
+  @Patch('groups/:id/members/:memberId/role')
+  async updateGroupMemberRole(
+    @Param('id') id: string,
+    @Param('memberId') memberId: string,
+    @Body('role') role: string,
+    @CurrentUser() admin: UserDocument,
+  ) {
+    return this.adminService.updateGroupMemberRoleAsAdmin(id, memberId, role, admin._id.toString());
+  }
+
+  @Post('groups/:id/suspend')
+  async suspendGroup(
+    @Param('id') id: string,
+    @Body('reason') reason: string | undefined,
+    @CurrentUser() admin: UserDocument,
+  ) {
+    return this.adminService.suspendGroup(id, reason, admin._id.toString());
+  }
+
+  @Post('groups/:id/unsuspend')
+  async unsuspendGroup(@Param('id') id: string, @CurrentUser() admin: UserDocument) {
+    return this.adminService.unsuspendGroup(id, admin._id.toString());
+  }
+
+  @Delete('groups/:id')
+  async deleteGroup(@Param('id') id: string, @CurrentUser() admin: UserDocument) {
+    return this.adminService.deleteGroupAsAdmin(id, admin._id.toString());
+  }
+
   // ─── Compliance ────────────────────────────────────
   @Get('compliance/flags')
   async getComplianceFlags(
@@ -282,8 +336,16 @@ export class AdminController {
 
   // ─── Landing Page CMS ─────────────────────────────
   @Get('content/landing-page')
-  async getLandingPageSettings() {
-    return this.adminService.getLandingPageSettings();
+  async getLandingPageSettings(@Query('key') key?: string) {
+    return this.adminService.getLandingPageSettings(key);
+  }
+
+  @Post('content/landing-page')
+  async createLandingPageSettings(
+    @Body() body: Record<string, unknown>,
+    @CurrentUser() admin: UserDocument,
+  ) {
+    return this.adminService.createLandingPageSettings(body, admin._id.toString());
   }
 
   @Patch('content/landing-page')
@@ -294,10 +356,21 @@ export class AdminController {
     return this.adminService.updateLandingPageSettings(body, admin._id.toString());
   }
 
+  @Delete('content/landing-page')
+  async deleteLandingPageSettings(
+    @Query('key') key: string | undefined,
+    @CurrentUser() admin: UserDocument,
+  ) {
+    return this.adminService.deleteLandingPageSettings(key, admin._id.toString());
+  }
+
   // ─── Leaderboard (public via admin-service) ────────
   @Get('leaderboard')
-  async getLeaderboard(@Query('limit') limit = 10) {
-    return this.adminService.getLeaderboard(Number(limit));
+  async getLeaderboard(
+    @Query('limit') limit = 10,
+    @Query('timePeriod') timePeriod?: string,
+  ) {
+    return this.adminService.getLeaderboard(Number(limit), timePeriod);
   }
 }
 
@@ -319,8 +392,23 @@ export class PublicController {
 
   @Get('leaderboard')
   @RateLimit({ limit: 500, ttl: 60 })
-  async getLeaderboard(@Query('limit') limit = 10) {
-    return this.adminService.getLeaderboard(Number(limit));
+  async getLeaderboard(
+    @Query('limit') limit = 10,
+    @Query('timePeriod') timePeriod?: string,
+  ) {
+    return this.adminService.getLeaderboard(Number(limit), timePeriod);
+  }
+
+  @Get('metrics/deposits')
+  @RateLimit({ limit: 200, ttl: 60 })
+  async getPublicDepositMetrics() {
+    return this.adminService.getPublicDepositMetrics();
+  }
+
+  @Get('metrics/landing')
+  @RateLimit({ limit: 200, ttl: 60 })
+  async getPublicLandingMetrics() {
+    return this.adminService.getPublicLandingMetrics();
   }
 
   @Get('blogs')
@@ -341,3 +429,4 @@ export class PublicController {
     return this.adminService.incrementBlogViews(slug);
   }
 }
+

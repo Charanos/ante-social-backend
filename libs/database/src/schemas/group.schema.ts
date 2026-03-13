@@ -42,6 +42,18 @@ export class Group {
   @Prop({ default: true })
   isPublic!: boolean;
 
+  @Prop({ default: false })
+  isSuspended!: boolean;
+
+  @Prop()
+  suspendedAt?: Date;
+
+  @Prop({ type: Types.ObjectId })
+  suspendedBy?: Types.ObjectId;
+
+  @Prop()
+  suspensionReason?: string;
+
   @Prop({ unique: true, sparse: true })
   inviteCode?: string;
 
