@@ -9,6 +9,9 @@ import { KAFKA_TOPICS, PLATFORM_FEE_RATE } from '@app/common';
 @Injectable()
 export class GroupService {
   private readonly logger = new Logger(GroupService.name);
+  private readonly kafkaEnabled =
+    Boolean(process.env.KAFKA_BROKERS || process.env.KAFKA_BROKER) &&
+    !['1', 'true', 'yes'].includes(String(process.env.KAFKA_DISABLED || '').toLowerCase());
 
   constructor(
     @InjectModel(Group.name) private groupModel: Model<GroupDocument>,
@@ -951,6 +954,7 @@ export class GroupService {
     excludeUserId?: string,
     channels: string[] = ['in_app'],
   ) {
+    if (!this.kafkaEnabled) return;
     const uniqueUserIds = Array.from(new Set(userIds.filter(Boolean)));
     uniqueUserIds.forEach((userId) => {
       if (excludeUserId && userId === excludeUserId) return;
@@ -966,6 +970,7 @@ export class GroupService {
     channels: string[] = ['in_app'],
   ) {
     if (!userId) return;
+    if (!this.kafkaEnabled) return;
     this.kafkaClient.emit(KAFKA_TOPICS.NOTIFICATION_DISPATCH, {
       userId,
       title,
