@@ -638,17 +638,30 @@ export class WalletService {
   }
 
   async approveWithdrawal(transactionId: string, adminId?: string) {
-    const tx = await this.withMongoTransaction(async (session) => {
-      const pending = await this.transactionModel.findById(transactionId, undefined, { session });
-      if (!pending || pending.type !== TransactionType.WITHDRAWAL) {
-        throw new BadRequestException('Invalid withdrawal transaction');
-      }
+    const { tx, updated } = await this.withMongoTransaction(async (session) => {
+      const pending = await this.transactionModel.findOneAndUpdate(
+        {
+          _id: transactionId,
+          type: TransactionType.WITHDRAWAL,
+          status: { $in: [TransactionStatus.PENDING, TransactionStatus.PROCESSING] },
+        },
+        {
+          $set: {
+            status: TransactionStatus.COMPLETED,
+            ...(adminId && Types.ObjectId.isValid(adminId)
+              ? { processedBy: new Types.ObjectId(adminId) }
+              : {}),
+          },
+        },
+        { new: true, session },
+      );
 
-      if (pending.status === TransactionStatus.COMPLETED) {
-        return pending;
-      }
-      if (pending.status !== TransactionStatus.PENDING && pending.status !== TransactionStatus.PROCESSING) {
-        throw new BadRequestException('Withdrawal transaction is not pending');
+      if (!pending) {
+        const existing = await this.transactionModel.findById(transactionId, undefined, { session });
+        if (existing && existing.type === TransactionType.WITHDRAWAL) {
+          return { tx: existing, updated: false };
+        }
+        throw new BadRequestException('Invalid withdrawal transaction');
       }
 
       await this.applyWalletUpdateWithRetry(
@@ -671,40 +684,53 @@ export class WalletService {
         },
         session,
       );
-
-      pending.status = TransactionStatus.COMPLETED;
-      if (adminId && Types.ObjectId.isValid(adminId)) {
-        pending.processedBy = new Types.ObjectId(adminId);
-      }
-      await pending.save({ session });
-      return pending;
+      return { tx: pending, updated: true };
     });
 
-    this.emitWalletEvent({
-      userId: tx.userId.toString(),
-      transactionId: tx._id.toString(),
-      type: tx.type,
-      amount: tx.amount,
-      currency: tx.currency,
-      status: tx.status,
-      description: tx.description,
-    });
+    if (updated) {
+      this.emitWalletEvent({
+        userId: tx.userId.toString(),
+        transactionId: tx._id.toString(),
+        type: tx.type,
+        amount: tx.amount,
+        currency: tx.currency,
+        status: tx.status,
+        description: tx.description,
+      });
+      await this.notifyAdminOutcome('approved', tx._id.toString(), tx.userId.toString());
+    }
 
     return tx;
   }
 
   async rejectWithdrawal(transactionId: string, reason?: string, adminId?: string) {
-    const tx = await this.withMongoTransaction(async (session) => {
-      const pending = await this.transactionModel.findById(transactionId, undefined, { session });
-      if (!pending || pending.type !== TransactionType.WITHDRAWAL) {
-        throw new BadRequestException('Invalid withdrawal transaction');
-      }
+    const { tx, updated } = await this.withMongoTransaction(async (session) => {
+      const pending = await this.transactionModel.findOneAndUpdate(
+        {
+          _id: transactionId,
+          type: TransactionType.WITHDRAWAL,
+          status: { $in: [TransactionStatus.PENDING, TransactionStatus.PROCESSING] },
+        },
+        {
+          $set: {
+            status: TransactionStatus.FAILED,
+            ...(adminId && Types.ObjectId.isValid(adminId)
+              ? { processedBy: new Types.ObjectId(adminId) }
+              : {}),
+            ...(reason && reason.trim()
+              ? { 'paymentMetadata.rejectionReason': reason.trim() }
+              : {}),
+          },
+        },
+        { new: true, session },
+      );
 
-      if (pending.status === TransactionStatus.FAILED) {
-        return pending;
-      }
-      if (pending.status !== TransactionStatus.PENDING && pending.status !== TransactionStatus.PROCESSING) {
-        throw new BadRequestException('Withdrawal transaction is not pending');
+      if (!pending) {
+        const existing = await this.transactionModel.findById(transactionId, undefined, { session });
+        if (existing && existing.type === TransactionType.WITHDRAWAL) {
+          return { tx: existing, updated: false };
+        }
+        throw new BadRequestException('Invalid withdrawal transaction');
       }
 
       await this.applyWalletUpdateWithRetry(
@@ -727,30 +753,21 @@ export class WalletService {
         },
         session,
       );
-
-      pending.status = TransactionStatus.FAILED;
-      if (adminId && Types.ObjectId.isValid(adminId)) {
-        pending.processedBy = new Types.ObjectId(adminId);
-      }
-      if (reason && reason.trim()) {
-        pending.paymentMetadata = {
-          ...(pending.paymentMetadata || {}),
-          rejectionReason: reason.trim(),
-        };
-      }
-      await pending.save({ session });
-      return pending;
+      return { tx: pending, updated: true };
     });
 
-    this.emitWalletEvent({
-      userId: tx.userId.toString(),
-      transactionId: tx._id.toString(),
-      type: tx.type,
-      amount: tx.amount,
-      currency: tx.currency,
-      status: tx.status,
-      description: tx.description,
-    });
+    if (updated) {
+      this.emitWalletEvent({
+        userId: tx.userId.toString(),
+        transactionId: tx._id.toString(),
+        type: tx.type,
+        amount: tx.amount,
+        currency: tx.currency,
+        status: tx.status,
+        description: tx.description,
+      });
+      await this.notifyAdminOutcome('rejected', tx._id.toString(), tx.userId.toString(), reason);
+    }
 
     return tx;
   }
@@ -1004,6 +1021,34 @@ export class WalletService {
         channels: ['in_app'],
         metadata,
       });
+    });
+  }
+
+  private async notifyAdminOutcome(
+    outcome: 'approved' | 'rejected' | 'skipped',
+    transactionId: string,
+    userId: string,
+    reason?: string,
+  ) {
+    const titleMap = {
+      approved: 'Withdrawal Approved',
+      rejected: 'Withdrawal Rejected',
+      skipped: 'Withdrawal Skipped',
+    };
+    const messageMap = {
+      approved: `Withdrawal ${transactionId} approved.`,
+      rejected: `Withdrawal ${transactionId} rejected.`,
+      skipped: `Withdrawal ${transactionId} skipped.`,
+    };
+    const message =
+      outcome === 'rejected' && reason
+        ? `${messageMap[outcome]} Reason: ${reason}`
+        : messageMap[outcome];
+
+    await this.notifyAdmins(titleMap[outcome], message, `withdrawal_${outcome}_admin`, {
+      transactionId,
+      userId,
+      reason,
     });
   }
 }
