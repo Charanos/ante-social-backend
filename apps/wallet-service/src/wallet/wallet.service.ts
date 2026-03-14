@@ -26,10 +26,12 @@ import {
 import {
   DAILY_LIMITS,
   DepositDto,
+  KAFKA_TOPICS,
   normalizeUserTier,
   TransactionStatus,
   TransactionType,
   UserTier,
+  UserRole,
   WithdrawDto,
 } from '@app/common';
 import { ClientKafka } from '@nestjs/microservices';
@@ -279,6 +281,12 @@ export class WalletService {
       status: TransactionStatus.PENDING,
       description: `${withdrawDto.currency} withdrawal`,
     });
+    await this.notifyAdmins(
+      'Withdrawal Pending',
+      `New withdrawal request: ${withdrawDto.currency} ${withdrawDto.amount}.`,
+      'withdrawal_pending_admin',
+      { transactionId: tx._id.toString(), userId },
+    );
 
     return {
       transactionId: tx._id,
@@ -949,5 +957,31 @@ export class WalletService {
         description: payload.description,
       }),
     );
+  }
+
+  private async notifyAdmins(
+    title: string,
+    message: string,
+    type: string,
+    metadata?: Record<string, unknown>,
+  ) {
+    const admins = await this.userModel
+      .find({ role: UserRole.ADMIN, isDeleted: { $ne: true } })
+      .select('_id')
+      .lean()
+      .exec();
+
+    if (!admins.length) return;
+
+    admins.forEach((admin) => {
+      this.kafkaClient.emit(KAFKA_TOPICS.NOTIFICATION_DISPATCH, {
+        userId: admin._id.toString(),
+        title,
+        message,
+        type,
+        channels: ['in_app'],
+        metadata,
+      });
+    });
   }
 }
