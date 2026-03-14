@@ -18,6 +18,18 @@ export class GroupMember {
 
 export const GroupMemberSchema = SchemaFactory.createForClass(GroupMember);
 
+// ─── Group Join Request subdocument ───────────────────────────
+@Schema({ _id: true })
+export class GroupJoinRequest {
+  @Prop({ required: true, type: Types.ObjectId, ref: 'User' })
+  userId!: Types.ObjectId;
+
+  @Prop({ type: Date, default: Date.now })
+  requestedAt!: Date;
+}
+
+export const GroupJoinRequestSchema = SchemaFactory.createForClass(GroupJoinRequest);
+
 // ─── Group Schema ───────────────────────────────────
 @Schema({ collection: 'betting_groups', timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' } })
 export class Group {
@@ -67,6 +79,9 @@ export class Group {
   @Prop({ type: [GroupMemberSchema], default: [] })
   members!: GroupMember[];
 
+  @Prop({ type: [GroupJoinRequestSchema], default: [] })
+  pendingMembers!: GroupJoinRequest[];
+
   @Prop({ default: 0 })
   memberCount!: number;
 
@@ -100,4 +115,5 @@ export const GroupSchema = SchemaFactory.createForClass(Group);
 GroupSchema.index({ createdBy: 1 });
 GroupSchema.index({ isPublic: 1 });
 GroupSchema.index({ 'members.userId': 1 });
+GroupSchema.index({ 'pendingMembers.userId': 1 });
 GroupSchema.index({ category: 1 });

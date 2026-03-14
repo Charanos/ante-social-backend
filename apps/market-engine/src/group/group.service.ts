@@ -157,6 +157,43 @@ export class GroupService {
     const isMember = group.members.some((member) => member.userId.toString() === userId);
     if (isMember) throw new BadRequestException('Already a member');
 
+    const isPending = Array.isArray(group.pendingMembers)
+      ? group.pendingMembers.some((member) => member.userId.toString() === userId)
+      : false;
+    if (isPending) {
+      return { status: 'pending', group };
+    }
+
+    if (group.requiresApproval) {
+      group.pendingMembers = [
+        ...(group.pendingMembers || []),
+        { userId: new Types.ObjectId(userId) as any, requestedAt: new Date() },
+      ];
+      await group.save();
+
+      const adminIds = group.members
+        .filter((member) => member.role === 'admin')
+        .map((member) => member.userId.toString());
+
+      this.dispatchNotification(
+        userId,
+        'Join Request Sent',
+        `Your request to join "${group.name}" is pending approval.`,
+        'group_join_pending',
+        ['in_app'],
+      );
+      this.notifyMany(
+        adminIds,
+        `${group.name}: New Join Request`,
+        'A new member is awaiting approval.',
+        'group_join_request',
+        userId,
+        ['in_app', 'push'],
+      );
+
+      return { status: 'pending', group };
+    }
+
     group.members.push({
       userId: new Types.ObjectId(userId) as any,
       role: 'member',
@@ -184,6 +221,94 @@ export class GroupService {
       userId,
       ['in_app', 'push'],
     );
+    return group;
+  }
+
+  async approveJoinRequest(groupId: string, memberId: string, actorId: string) {
+    const group = await this.findGroupByIdentifier(groupId, true);
+    if (!group) throw new NotFoundException('Group not found');
+    this.assertGroupActive(group);
+
+    const actorMember = group.members.find((member) => member.userId.toString() === actorId);
+    const isOwner = group.createdBy.toString() === actorId;
+    const canManage = isOwner || actorMember?.role === 'admin' || actorMember?.role === 'moderator';
+    if (!canManage) {
+      throw new BadRequestException('Not authorized to manage join requests');
+    }
+
+    const pendingIndex = (group.pendingMembers || []).findIndex(
+      (member) => member.userId.toString() === memberId,
+    );
+    if (pendingIndex === -1) {
+      throw new NotFoundException('Join request not found');
+    }
+
+    const maxMembers = Number.isFinite(group.maxMembers)
+      ? group.maxMembers
+      : Number.POSITIVE_INFINITY;
+    if (group.memberCount >= maxMembers) {
+      throw new BadRequestException('Group has reached its member limit');
+    }
+
+    group.pendingMembers.splice(pendingIndex, 1);
+    group.members.push({
+      userId: new Types.ObjectId(memberId) as any,
+      role: 'member',
+      joinedAt: new Date(),
+    });
+    group.memberCount += 1;
+    await group.save();
+
+    await this.userModel.findByIdAndUpdate(memberId, { $inc: { groupMemberships: 1 } });
+    this.dispatchNotification(
+      memberId,
+      'Join Request Approved',
+      `Your request to join "${group.name}" was approved.`,
+      'group_join_approved',
+      ['in_app', 'push'],
+    );
+
+    return group;
+  }
+
+  async rejectJoinRequest(
+    groupId: string,
+    memberId: string,
+    actorId: string,
+    reason?: string,
+  ) {
+    const group = await this.findGroupByIdentifier(groupId, true);
+    if (!group) throw new NotFoundException('Group not found');
+    this.assertGroupActive(group);
+
+    const actorMember = group.members.find((member) => member.userId.toString() === actorId);
+    const isOwner = group.createdBy.toString() === actorId;
+    const canManage = isOwner || actorMember?.role === 'admin' || actorMember?.role === 'moderator';
+    if (!canManage) {
+      throw new BadRequestException('Not authorized to manage join requests');
+    }
+
+    const pendingIndex = (group.pendingMembers || []).findIndex(
+      (member) => member.userId.toString() === memberId,
+    );
+    if (pendingIndex === -1) {
+      throw new NotFoundException('Join request not found');
+    }
+
+    group.pendingMembers.splice(pendingIndex, 1);
+    await group.save();
+
+    const message = reason && reason.trim()
+      ? `Your request to join "${group.name}" was declined. ${reason.trim()}`
+      : `Your request to join "${group.name}" was declined.`;
+    this.dispatchNotification(
+      memberId,
+      'Join Request Declined',
+      message,
+      'group_join_rejected',
+      ['in_app', 'push'],
+    );
+
     return group;
   }
 
@@ -916,7 +1041,9 @@ export class GroupService {
       ],
     });
     if (populateMembers) {
-      query = query.populate('members.userId', 'username avatarUrl');
+      query = query
+        .populate('members.userId', 'username avatarUrl')
+        .populate('pendingMembers.userId', 'username avatarUrl');
     }
     return query.exec();
   }

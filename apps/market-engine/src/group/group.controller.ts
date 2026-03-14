@@ -11,7 +11,20 @@ export class GroupController {
   // ─── Group Management ─────────────────────────────
   @Post()
   async createGroup(
-    @Body() data: { name: string; description?: string; isPublic?: boolean },
+    @Body()
+    data: {
+      name: string;
+      description?: string;
+      isPublic?: boolean;
+      category?: string;
+      avatarUrl?: string;
+      imageUrl?: string;
+      maxMembers?: number;
+      minBuyIn?: number;
+      maxBuyIn?: number;
+      requiresApproval?: boolean;
+      inviteCode?: string;
+    },
     @CurrentUser() user: UserDocument,
   ) {
     return this.groupService.createGroup(data, user._id.toString());
@@ -55,6 +68,12 @@ export class GroupController {
       category?: string;
       isPublic?: boolean;
       imageUrl?: string;
+      avatarUrl?: string;
+      maxMembers?: number;
+      minBuyIn?: number;
+      maxBuyIn?: number;
+      requiresApproval?: boolean;
+      inviteCode?: string;
     },
     @CurrentUser() user: UserDocument,
   ) {
@@ -83,6 +102,30 @@ export class GroupController {
     @CurrentUser() user: UserDocument,
   ) {
     return this.groupService.removeMember(groupId, memberId, user._id.toString());
+  }
+
+  @Post(':id/requests/:memberId/approve')
+  async approveJoinRequest(
+    @Param('id') groupId: string,
+    @Param('memberId') memberId: string,
+    @CurrentUser() user: UserDocument,
+  ) {
+    return this.groupService.approveJoinRequest(groupId, memberId, user._id.toString());
+  }
+
+  @Post(':id/requests/:memberId/reject')
+  async rejectJoinRequest(
+    @Param('id') groupId: string,
+    @Param('memberId') memberId: string,
+    @Body('reason') reason: string | undefined,
+    @CurrentUser() user: UserDocument,
+  ) {
+    return this.groupService.rejectJoinRequest(
+      groupId,
+      memberId,
+      user._id.toString(),
+      reason,
+    );
   }
 
   @Post(':id/invite')
