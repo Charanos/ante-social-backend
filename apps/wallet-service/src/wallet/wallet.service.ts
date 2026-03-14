@@ -194,6 +194,16 @@ export class WalletService {
       return pending.save({ session });
     });
 
+    this.emitWalletEvent({
+      userId,
+      transactionId: tx._id.toString(),
+      type: TransactionType.DEPOSIT,
+      amount: depositDto.amount,
+      currency: depositDto.currency,
+      status: TransactionStatus.PENDING,
+      description: `${depositDto.currency} deposit`,
+    });
+
     return {
       transactionId: tx._id,
       status: 'pending',

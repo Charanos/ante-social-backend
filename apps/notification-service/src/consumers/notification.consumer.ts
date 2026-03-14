@@ -244,20 +244,52 @@ export class NotificationConsumer {
       const payload = data.payload || data;
       this.logger.log(`Processing wallet transaction for ${payload.userId}`);
 
-      if (payload.type === 'deposit' && payload.status === 'completed') {
-        await this.inAppService.create(
-          payload.userId,
-          'Deposit Confirmed',
-          `Your deposit of ${payload.currency} ${payload.amount} has been confirmed.`,
-          'deposit_confirmed',
-        );
-      } else if (payload.type === 'withdrawal' && payload.status === 'completed') {
-        await this.inAppService.create(
-          payload.userId,
-          'Withdrawal Processed',
-          `Your withdrawal of ${payload.currency} ${payload.amount} has been processed.`,
-          'withdrawal_processed',
-        );
+      if (payload.type === 'deposit') {
+        if (payload.status === 'pending' || payload.status === 'processing') {
+          await this.inAppService.create(
+            payload.userId,
+            'Deposit Initiated',
+            `Your deposit of ${payload.currency} ${payload.amount} is being processed.`,
+            'deposit_pending',
+          );
+        } else if (payload.status === 'completed') {
+          await this.inAppService.create(
+            payload.userId,
+            'Deposit Confirmed',
+            `Your deposit of ${payload.currency} ${payload.amount} has been confirmed.`,
+            'deposit_confirmed',
+          );
+        } else if (payload.status === 'failed') {
+          await this.inAppService.create(
+            payload.userId,
+            'Deposit Failed',
+            `Your deposit of ${payload.currency} ${payload.amount} was not completed.`,
+            'deposit_failed',
+          );
+        }
+      } else if (payload.type === 'withdrawal') {
+        if (payload.status === 'pending' || payload.status === 'processing') {
+          await this.inAppService.create(
+            payload.userId,
+            'Withdrawal Submitted',
+            `Your withdrawal of ${payload.currency} ${payload.amount} is awaiting approval.`,
+            'withdrawal_pending',
+          );
+        } else if (payload.status === 'completed') {
+          await this.inAppService.create(
+            payload.userId,
+            'Withdrawal Processed',
+            `Your withdrawal of ${payload.currency} ${payload.amount} has been processed.`,
+            'withdrawal_processed',
+          );
+        } else if (payload.status === 'failed') {
+          await this.inAppService.create(
+            payload.userId,
+            'Withdrawal Failed',
+            `Your withdrawal of ${payload.currency} ${payload.amount} was not completed.`,
+            'withdrawal_failed',
+          );
+        }
       }
     });
   }

@@ -5,6 +5,7 @@ import { ScheduleModule } from '@nestjs/schedule'; // For cron jobs
 import { MarketModule } from './market/market.module';
 import { GroupModule } from './group/group.module';
 import { PolymarketEngineModule } from './polymarket/polymarket.module';
+import { PublicModule } from './public/public.module';
 import { APP_GUARD } from '@nestjs/core';
 import { RateLimitGuard, validateEnv } from '@app/common';
 
@@ -20,6 +21,7 @@ import { RateLimitGuard, validateEnv } from '@app/common';
     MarketModule,
     GroupModule,
     PolymarketEngineModule,
+    PublicModule,
   ],
   providers: [
     {

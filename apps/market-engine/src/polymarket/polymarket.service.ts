@@ -361,6 +361,7 @@ export class PolymarketService implements OnModuleInit, OnModuleDestroy {
     const isTrending = (pm as any).isTrending || (pm.volume_24hr || 0) > 10000 || ((pm as any).volume24hr || 0) > 10000;
     const isFeatured = pm.featured || (pm as any).isFeatured || false;
     const closeTime = pm.endDate ? new Date(pm.endDate) : (pm.end_date_iso ? new Date(pm.end_date_iso) : new Date());
+    const minBuyIn = this.computePolymarketMinBuyIn(pm, isTrending, isFeatured);
     
     return {
       title: pm.question,
@@ -373,7 +374,7 @@ export class PolymarketService implements OnModuleInit, OnModuleDestroy {
       status: (pm.active && closeTime.getTime() > Date.now()) ? 'active' : 'closed',
       isTrending: isTrending,
       isFeatured: isFeatured,
-      buyInAmount: 1,
+      buyInAmount: minBuyIn,
       buyInCurrency: 'USD',
       closeTime: closeTime,
       settlementTime: new Date(closeTime.getTime() + 24 * 60 * 60 * 1000),
@@ -386,6 +387,27 @@ export class PolymarketService implements OnModuleInit, OnModuleDestroy {
       mediaUrl: pm.image,
       mediaType: pm.image ? 'image' : 'none',
     };
+  }
+
+  private computePolymarketMinBuyIn(
+    pm: PolymarketMarket,
+    isTrending: boolean,
+    isFeatured: boolean,
+  ) {
+    const liquidity = Number(pm.liquidity || 0);
+    let minBuyIn = 100;
+
+    if (liquidity >= 250000) minBuyIn = 1000;
+    else if (liquidity >= 100000) minBuyIn = 600;
+    else if (liquidity >= 50000) minBuyIn = 400;
+    else if (liquidity >= 20000) minBuyIn = 250;
+    else if (liquidity >= 10000) minBuyIn = 150;
+
+    if (isTrending || isFeatured) {
+      minBuyIn = Math.round((minBuyIn * 1.25) / 10) * 10;
+    }
+
+    return Math.max(100, Math.round(minBuyIn));
   }
 
   private parseOutcomes(pm: PolymarketMarket) {
@@ -441,6 +463,7 @@ export class PolymarketService implements OnModuleInit, OnModuleDestroy {
     const totalPool = market.totalPool;
     const isTrending = (pm as any).isTrending || (pm.volume_24hr || 0) > 10000 || ((pm as any).volume24hr || 0) > 10000;
     const isFeatured = pm.featured || (pm as any).isFeatured || false;
+    const minBuyIn = this.computePolymarketMinBuyIn(pm, isTrending, isFeatured);
 
     let hasChanges = false;
 
@@ -458,6 +481,11 @@ export class PolymarketService implements OnModuleInit, OnModuleDestroy {
 
     if (market.isFeatured !== isFeatured) {
       market.isFeatured = isFeatured;
+      hasChanges = true;
+    }
+
+    if (market.buyInAmount < minBuyIn) {
+      market.buyInAmount = minBuyIn;
       hasChanges = true;
     }
 
