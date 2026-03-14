@@ -1,7 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import type { Model } from 'mongoose';
 import {
+  Blog,
+  BlogDocument,
   Group,
   GroupDocument,
   LandingPage,
@@ -26,6 +28,7 @@ export class PublicService {
     private readonly transactionModel: Model<TransactionDocument>,
     @InjectModel(LandingPage.name)
     private readonly landingPageModel: Model<LandingPageDocument>,
+    @InjectModel(Blog.name) private readonly blogModel: Model<BlogDocument>,
   ) {}
 
   async getLandingPageSettings(key = 'default') {
@@ -185,5 +188,154 @@ export class PublicService {
         totalVolume: totalVolumeAgg,
       },
     };
+  }
+
+  async getPublicLeaderboard(limit = 10, timePeriod?: string) {
+    const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 50);
+    const normalizedPeriod = String(timePeriod || 'all-time').toLowerCase();
+
+    if (normalizedPeriod === 'weekly' || normalizedPeriod === 'week') {
+      const weekly = await this.getWeeklyLeaderboard(safeLimit);
+      if (weekly.length > 0) {
+        return { data: weekly, meta: { timePeriod: 'weekly' } };
+      }
+    }
+
+    const users = await this.userModel
+      .find({ isBanned: { $ne: true }, isDeleted: { $ne: true } })
+      .select('username fullName avatarUrl reputationScore positionsWon positionsLost tier updatedAt')
+      .sort({ reputationScore: -1 })
+      .limit(safeLimit)
+      .lean()
+      .exec();
+
+    return { data: users, meta: { timePeriod: 'all-time' } };
+  }
+
+  async getPublicBlogs(limit = 20, offset = 0) {
+    const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 200);
+    const safeOffset = Math.max(Number(offset) || 0, 0);
+    const filter: Record<string, any> = { status: 'published' };
+
+    const [blogs, total] = await Promise.all([
+      this.blogModel
+        .find(filter)
+        .sort({ createdAt: -1 })
+        .skip(safeOffset)
+        .limit(safeLimit)
+        .lean()
+        .exec(),
+      this.blogModel.countDocuments(filter),
+    ]);
+
+    return { data: blogs, meta: { total, limit: safeLimit, offset: safeOffset } };
+  }
+
+  async getPublicBlogBySlug(slug: string) {
+    if (!slug || slug.trim().length === 0) {
+      throw new BadRequestException('Slug is required');
+    }
+
+    const blog = await this.blogModel
+      .findOne({ slug: slug.trim(), status: 'published' })
+      .lean()
+      .exec();
+    if (!blog) throw new NotFoundException('Blog not found');
+    return blog;
+  }
+
+  async incrementPublicBlogViews(slug: string) {
+    if (!slug || slug.trim().length === 0) {
+      throw new BadRequestException('Slug is required');
+    }
+
+    const blog = await this.blogModel.findOneAndUpdate(
+      { slug: slug.trim(), status: 'published' },
+      { $inc: { views: 1 } },
+      { new: true, select: 'views' },
+    ).exec();
+
+    if (!blog) throw new NotFoundException('Blog not found');
+    return { success: true, views: blog.views || 0 };
+  }
+
+  private async getWeeklyLeaderboard(limit: number) {
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const amountExpr = { $ifNull: ['$amountInSettlementCurrency', '$amount'] };
+
+    const rows = await this.transactionModel
+      .aggregate([
+        {
+          $match: {
+            status: 'completed',
+            type: { $in: ['bet_placed', 'bet_payout'] },
+            createdAt: { $gte: since },
+          },
+        },
+        {
+          $group: {
+            _id: '$userId',
+            placedCount: {
+              $sum: { $cond: [{ $eq: ['$type', 'bet_placed'] }, 1, 0] },
+            },
+            payoutCount: {
+              $sum: { $cond: [{ $eq: ['$type', 'bet_payout'] }, 1, 0] },
+            },
+            placedAmount: {
+              $sum: { $cond: [{ $eq: ['$type', 'bet_placed'] }, amountExpr, 0] },
+            },
+            payoutAmount: {
+              $sum: { $cond: [{ $eq: ['$type', 'bet_payout'] }, amountExpr, 0] },
+            },
+            lastAt: { $max: '$createdAt' },
+          },
+        },
+        {
+          $addFields: {
+            weeklyPnl: { $subtract: ['$payoutAmount', '$placedAmount'] },
+          },
+        },
+        { $sort: { weeklyPnl: -1, payoutAmount: -1, placedCount: -1 } },
+        { $limit: limit },
+        {
+          $lookup: {
+            from: 'users',
+            localField: '_id',
+            foreignField: '_id',
+            as: 'user',
+          },
+        },
+        { $unwind: '$user' },
+        {
+          $match: {
+            'user.isBanned': { $ne: true },
+            'user.isDeleted': { $ne: true },
+          },
+        },
+        {
+          $project: {
+            _id: '$user._id',
+            username: '$user.username',
+            fullName: '$user.fullName',
+            avatarUrl: '$user.avatarUrl',
+            reputationScore: '$user.reputationScore',
+            positionsWon: '$user.positionsWon',
+            positionsLost: '$user.positionsLost',
+            tier: '$user.tier',
+            updatedAt: '$user.updatedAt',
+            weeklyStats: {
+              placedCount: '$placedCount',
+              payoutCount: '$payoutCount',
+              placedAmount: '$placedAmount',
+              payoutAmount: '$payoutAmount',
+              pnl: '$weeklyPnl',
+              lastAt: '$lastAt',
+            },
+          },
+        },
+      ])
+      .exec();
+
+    return rows || [];
   }
 }

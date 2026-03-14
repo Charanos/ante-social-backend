@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Post, Param, Query } from '@nestjs/common';
 import { RateLimit } from '@app/common';
 import { PublicService } from './public.service';
 
@@ -22,5 +22,33 @@ export class PublicController {
   @RateLimit({ limit: 200, ttl: 60 })
   async getPublicLandingMetrics() {
     return this.publicService.getPublicLandingMetrics();
+  }
+
+  @Get('leaderboard')
+  @RateLimit({ limit: 500, ttl: 60 })
+  async getLeaderboard(
+    @Query('limit') limit = 10,
+    @Query('timePeriod') timePeriod?: string,
+  ) {
+    return this.publicService.getPublicLeaderboard(Number(limit), timePeriod);
+  }
+
+  @Get('blogs')
+  @RateLimit({ limit: 500, ttl: 60 })
+  async getPublishedBlogs(
+    @Query('limit') limit = 20,
+    @Query('offset') offset = 0,
+  ) {
+    return this.publicService.getPublicBlogs(Number(limit), Number(offset));
+  }
+
+  @Get('blogs/:slug')
+  async getBlogBySlug(@Param('slug') slug: string) {
+    return this.publicService.getPublicBlogBySlug(slug);
+  }
+
+  @Post('blogs/:slug/view')
+  async incrementBlogViews(@Param('slug') slug: string) {
+    return this.publicService.incrementPublicBlogViews(slug);
   }
 }
