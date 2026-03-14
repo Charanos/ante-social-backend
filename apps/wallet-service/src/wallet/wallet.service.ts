@@ -360,7 +360,19 @@ export class WalletService {
       };
     }
 
-    return tx.save();
+    const saved = await tx.save();
+
+    this.emitWalletEvent({
+      userId: saved.userId.toString(),
+      transactionId: saved._id.toString(),
+      type: saved.type,
+      amount: saved.amount,
+      currency: saved.currency,
+      status: saved.status,
+      description: saved.description,
+    });
+
+    return saved;
   }
 
   async completePendingDeposit(
@@ -778,6 +790,16 @@ export class WalletService {
     if (!transaction) {
       throw new NotFoundException('No pending withdrawal transaction available');
     }
+
+    this.emitWalletEvent({
+      userId: transaction.userId.toString(),
+      transactionId: transaction._id.toString(),
+      type: transaction.type,
+      amount: transaction.amount,
+      currency: transaction.currency,
+      status: transaction.status,
+      description: transaction.description,
+    });
 
     return transaction;
   }
