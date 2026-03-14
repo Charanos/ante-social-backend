@@ -125,6 +125,7 @@ export class GroupService {
       .skip(offset)
       .limit(limit)
       .sort({ memberCount: -1 })
+      .populate('members.userId', 'username avatarUrl')
       .exec();
   }
 
