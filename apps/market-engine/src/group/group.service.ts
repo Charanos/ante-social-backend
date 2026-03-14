@@ -19,15 +19,87 @@ export class GroupService {
   ) {}
 
   // Group management
-  async createGroup(data: { name: string; description?: string; isPublic?: boolean }, userId: string) {
-    const slug = await this.ensureUniqueGroupSlug(data?.name);
-    const group = new this.groupModel({
-      ...data,
+  async createGroup(
+    data: {
+      name: string;
+      description?: string;
+      isPublic?: boolean;
+      category?: string;
+      avatarUrl?: string;
+      imageUrl?: string;
+      maxMembers?: number;
+      minBuyIn?: number;
+      maxBuyIn?: number;
+      requiresApproval?: boolean;
+      inviteCode?: string;
+    },
+    userId: string,
+  ) {
+    const trimmedName = String(data?.name || '').trim();
+    if (!trimmedName) {
+      throw new BadRequestException('Group name is required');
+    }
+
+    const slug = await this.ensureUniqueGroupSlug(trimmedName);
+    const description = String(data?.description || '').trim() || undefined;
+    const category = String(data?.category || '').trim() || undefined;
+    const avatarUrl = String(data?.avatarUrl || '').trim() || undefined;
+    const imageUrl = String(data?.imageUrl || '').trim() || undefined;
+    const isPublic = data?.isPublic !== false;
+    const requiresApproval = Boolean(data?.requiresApproval);
+
+    const maxMembers = Number(data?.maxMembers);
+    if (Number.isFinite(maxMembers) && maxMembers < 1) {
+      throw new BadRequestException('maxMembers must be at least 1');
+    }
+
+    const minBuyIn = Number(data?.minBuyIn);
+    if (Number.isFinite(minBuyIn) && minBuyIn < 0) {
+      throw new BadRequestException('minBuyIn must be greater than or equal to 0');
+    }
+
+    const maxBuyIn = Number(data?.maxBuyIn);
+    if (Number.isFinite(maxBuyIn) && maxBuyIn < 0) {
+      throw new BadRequestException('maxBuyIn must be greater than or equal to 0');
+    }
+
+    if (Number.isFinite(minBuyIn) && Number.isFinite(maxBuyIn) && minBuyIn > maxBuyIn) {
+      throw new BadRequestException('minBuyIn cannot exceed maxBuyIn');
+    }
+
+    let inviteCode = String(data?.inviteCode || '').trim().toUpperCase();
+    if (!isPublic && !inviteCode) {
+      inviteCode = this.generateInviteCode();
+    }
+
+    const payload: Partial<GroupDocument> = {
+      name: trimmedName,
+      description,
+      category,
+      avatarUrl,
+      imageUrl,
+      isPublic,
+      requiresApproval,
       slug,
-      createdBy: userId,
-      members: [{ userId, role: 'admin', joinedAt: new Date() }],
+      createdBy: new Types.ObjectId(userId),
+      members: [{ userId: new Types.ObjectId(userId) as any, role: 'admin', joinedAt: new Date() }],
       memberCount: 1,
-    });
+    };
+
+    if (Number.isFinite(maxMembers)) {
+      payload.maxMembers = Math.floor(maxMembers);
+    }
+    if (Number.isFinite(minBuyIn)) {
+      payload.minBuyIn = minBuyIn;
+    }
+    if (Number.isFinite(maxBuyIn)) {
+      payload.maxBuyIn = maxBuyIn;
+    }
+    if (!isPublic && inviteCode) {
+      payload.inviteCode = inviteCode;
+    }
+
+    const group = new this.groupModel(payload);
     await group.save();
 
     await this.userModel.findByIdAndUpdate(userId, { $inc: { groupMemberships: 1 } });
@@ -66,6 +138,13 @@ export class GroupService {
     const group = await this.findGroupByIdentifier(groupId);
     if (!group) throw new NotFoundException('Group not found');
     this.assertGroupActive(group);
+
+    const maxMembers = Number.isFinite(group.maxMembers)
+      ? group.maxMembers
+      : Number.POSITIVE_INFINITY;
+    if (group.memberCount >= maxMembers) {
+      throw new BadRequestException('Group has reached its member limit');
+    }
 
     if (!group.isPublic) {
       const normalizedCode = String(inviteCode || '').trim().toUpperCase();
@@ -185,6 +264,12 @@ export class GroupService {
       category?: string;
       isPublic?: boolean;
       imageUrl?: string;
+      avatarUrl?: string;
+      maxMembers?: number;
+      minBuyIn?: number;
+      maxBuyIn?: number;
+      requiresApproval?: boolean;
+      inviteCode?: string;
     },
     actorId: string,
   ) {
@@ -210,15 +295,58 @@ export class GroupService {
       group.description = nextDescription || undefined;
     }
     if (updates.category !== undefined) {
-      const nextCategory = String(updates.category || '').trim();
-      group.category = nextCategory || undefined;
+      const trimmed = String(updates.category || '').trim();
+      group.category = trimmed || undefined;
     }
     if (updates.isPublic !== undefined) {
       group.isPublic = Boolean(updates.isPublic);
+      if (!group.isPublic && !group.inviteCode) {
+        group.inviteCode = this.generateInviteCode();
+      }
     }
     if (updates.imageUrl !== undefined) {
-      const nextImage = String(updates.imageUrl || '').trim();
-      group.imageUrl = nextImage || undefined;
+      const trimmed = String(updates.imageUrl || '').trim();
+      group.imageUrl = trimmed || undefined;
+    }
+    if (updates.avatarUrl !== undefined) {
+      const trimmed = String(updates.avatarUrl || '').trim();
+      group.avatarUrl = trimmed || undefined;
+    }
+    if (updates.maxMembers !== undefined) {
+      const maxMembers = Number(updates.maxMembers);
+      if (!Number.isFinite(maxMembers) || maxMembers < 1) {
+        throw new BadRequestException('maxMembers must be at least 1');
+      }
+      if (maxMembers < group.memberCount) {
+        throw new BadRequestException('maxMembers cannot be lower than current member count');
+      }
+      group.maxMembers = Math.floor(maxMembers);
+    }
+    if (updates.minBuyIn !== undefined || updates.maxBuyIn !== undefined) {
+      const minBuyIn = updates.minBuyIn !== undefined ? Number(updates.minBuyIn) : group.minBuyIn;
+      const maxBuyIn = updates.maxBuyIn !== undefined ? Number(updates.maxBuyIn) : group.maxBuyIn;
+      if (!Number.isFinite(minBuyIn) || minBuyIn < 0) {
+        throw new BadRequestException('minBuyIn must be greater than or equal to 0');
+      }
+      if (!Number.isFinite(maxBuyIn) || maxBuyIn < 0) {
+        throw new BadRequestException('maxBuyIn must be greater than or equal to 0');
+      }
+      if (minBuyIn > maxBuyIn) {
+        throw new BadRequestException('minBuyIn cannot exceed maxBuyIn');
+      }
+      group.minBuyIn = minBuyIn;
+      group.maxBuyIn = maxBuyIn;
+    }
+    if (updates.requiresApproval !== undefined) {
+      group.requiresApproval = Boolean(updates.requiresApproval);
+    }
+    if (updates.inviteCode !== undefined) {
+      const trimmed = String(updates.inviteCode || '').trim().toUpperCase();
+      if (!group.isPublic && trimmed) {
+        group.inviteCode = trimmed;
+      } else if (!group.isPublic && !trimmed) {
+        group.inviteCode = this.generateInviteCode();
+      }
     }
 
     await group.save();
@@ -330,6 +458,12 @@ export class GroupService {
       if (!Number.isFinite(buyInAmount) || buyInAmount <= 0) {
         throw new BadRequestException('buyInAmount must be greater than 0');
       }
+      if (Number.isFinite(group.minBuyIn) && buyInAmount < group.minBuyIn) {
+        throw new BadRequestException('buyInAmount must be at least the group minimum');
+      }
+      if (Number.isFinite(group.maxBuyIn) && buyInAmount > group.maxBuyIn) {
+        throw new BadRequestException('buyInAmount exceeds the group maximum');
+      }
       if (marketType === 'odd_one_out' && normalizedOptions.length < 3) {
         throw new BadRequestException('Odd-one-out markets require at least 3 options');
       }
@@ -384,6 +518,9 @@ export class GroupService {
 
     group.activeBetsCount += 1;
     group.totalBets += 1;
+    if (!group.featuredMarketId) {
+      group.featuredMarketId = bet._id;
+    }
     await group.save();
     this.notifyMany(
       this.getMemberIds(group),
