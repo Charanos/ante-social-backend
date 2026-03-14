@@ -378,7 +378,7 @@ export class PolymarketService implements OnModuleInit, OnModuleDestroy {
       closeTime: closeTime,
       settlementTime: new Date(closeTime.getTime() + 24 * 60 * 60 * 1000),
       outcomes: this.parseOutcomes(pm),
-      totalPool: pm.liquidity || 0,
+      totalPool: 0,
       participantCount: 0,
       createdBy: adminId,
       externalId: pm.id,
@@ -393,7 +393,7 @@ export class PolymarketService implements OnModuleInit, OnModuleDestroy {
       return pm.tokens.map((token, i) => ({
         _id: new Types.ObjectId(),
         optionText: token.outcome || `Option ${(token as any).index !== undefined ? (token as any).index + 1 : i + 1}`,
-        totalAmount: (token.price || 0) * 1000,
+        totalAmount: 0,
         participantCount: 0,
         mediaUrl: pm.image,
         mediaType: pm.image ? 'image' : 'none',
@@ -438,7 +438,7 @@ export class PolymarketService implements OnModuleInit, OnModuleDestroy {
   private async updateExistingMarket(market: MarketDocument, pm: PolymarketMarket) {
     const closeTime = pm.endDate ? new Date(pm.endDate) : (pm.end_date_iso ? new Date(pm.end_date_iso) : new Date(market.closeTime));
     const status = (pm.active && closeTime.getTime() > Date.now()) ? 'active' : 'closed';
-    const totalPool = (pm.liquidity || 0) as number;
+    const totalPool = market.totalPool;
     const isTrending = (pm as any).isTrending || (pm.volume_24hr || 0) > 10000 || ((pm as any).volume24hr || 0) > 10000;
     const isFeatured = pm.featured || (pm as any).isFeatured || false;
 
@@ -449,10 +449,7 @@ export class PolymarketService implements OnModuleInit, OnModuleDestroy {
       hasChanges = true;
     }
     
-    if (Math.abs(market.totalPool - totalPool) > 1) {
-      market.totalPool = totalPool;
-      hasChanges = true;
-    }
+    // Keep local pool totals; do not overwrite with Polymarket liquidity.
 
     if (market.isTrending !== isTrending) {
       market.isTrending = isTrending;
