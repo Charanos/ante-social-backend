@@ -128,44 +128,77 @@ export class AuthService {
 
   async googleLogin(dto: any) {
     const { email, googleId, fullName, avatarUrl } = dto;
-
-    let user = await this.userModel.findOne({
-      $or: [{ googleId }, { email: email.toLowerCase() }],
+    return this.socialLogin({
+      provider: 'google',
+      providerId: googleId,
+      email,
+      fullName,
+      avatarUrl,
     });
+  }
+
+  async socialLogin(dto: {
+    provider: string;
+    providerId: string;
+    email?: string;
+    fullName?: string;
+    avatarUrl?: string;
+  }) {
+    const provider = String(dto.provider || '').trim().toLowerCase();
+    const providerId = String(dto.providerId || '').trim();
+    const email = dto.email ? String(dto.email).trim().toLowerCase() : '';
+
+    if (!providerId) {
+      throw new BadRequestException('Provider ID is required');
+    }
+
+    const providerField = this.resolveSocialProviderField(provider);
+    if (!providerField) {
+      throw new BadRequestException('Unsupported social provider');
+    }
+
+    const lookup = [{ [providerField]: providerId }] as Record<string, unknown>[];
+    if (email) {
+      lookup.push({ email });
+    }
+
+    let user = await this.userModel.findOne({ $or: lookup });
 
     if (user) {
-      // Link Google ID if not already linked
-      if (!user.googleId) {
-        user.googleId = googleId;
+      if (!user.get(providerField)) {
+        user.set(providerField, providerId);
         await user.save();
       }
     } else {
-      // Create new user (Sign up)
+      if (!email) {
+        throw new BadRequestException('Email is required');
+      }
+
       const baseUsername = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '');
       let username = baseUsername;
       let counter = 1;
 
-      // Ensure unique username
       while (await this.userModel.findOne({ username })) {
         username = `${baseUsername}${counter++}`;
       }
 
       user = new this.userModel({
-        email: email.toLowerCase(),
+        email,
         username,
-        googleId,
-        fullName,
-        avatarUrl: avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(username)}`,
+        fullName: dto.fullName,
+        avatarUrl:
+          dto.avatarUrl ||
+          `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(username)}`,
         emailVerified: true,
         tier: UserTier.NOVICE,
         role: UserRole.USER,
         reputationScore: 100,
         integrityWeight: 0.85,
+        [providerField]: providerId,
       });
 
       const savedUser = await user.save();
 
-      // Create Wallet
       const wallet = new this.walletModel({
         userId: savedUser._id,
         balanceUsd: 0,
@@ -176,7 +209,6 @@ export class AuthService {
       savedUser.walletId = savedWallet._id;
       await savedUser.save();
 
-      // Emit Kafka Event
       this.kafkaClient.emit(
         'user.created',
         new UserCreatedEvent({
@@ -194,6 +226,13 @@ export class AuthService {
       ...result,
       needsOnboarding: !user.dateOfBirth,
     };
+  }
+
+  private resolveSocialProviderField(provider: string) {
+    if (provider === 'google') return 'googleId';
+    if (provider === 'github') return 'githubId';
+    if (provider === 'x') return 'xId';
+    return null;
   }
 
   async refreshTokens(refreshToken: string) {

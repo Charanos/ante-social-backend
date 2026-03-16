@@ -198,6 +198,12 @@ export class MarketService {
     if (updates.scheduledPublishTime !== undefined) {
       updateDoc.scheduledPublishTime = new Date(updates.scheduledPublishTime);
     }
+    if ((updates as any).status !== undefined) {
+      updateDoc.status = (updates as any).status;
+    }
+    if ((updates as any).adminReport !== undefined) {
+      updateDoc.adminReport = (updates as any).adminReport;
+    }
 
     updateDoc.lastEditedBy = new Types.ObjectId(userId);
     updateDoc.version = (market.version || 1) + 1;

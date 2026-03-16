@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsString, MinLength, MaxLength, IsDateString, IsOptional, IsEnum, Matches } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, MinLength, MaxLength, IsDateString, IsOptional, IsEnum, Matches, IsIn } from 'class-validator';
 import { Currency } from '../constants';
 
 export class RegisterDto {
@@ -69,6 +69,29 @@ export class GoogleLoginDto {
   @IsString()
   @IsNotEmpty()
   googleId!: string;
+
+  @IsString()
+  @IsOptional()
+  fullName?: string;
+
+  @IsString()
+  @IsOptional()
+  avatarUrl?: string;
+}
+
+export class SocialLoginDto {
+  @IsString()
+  @IsNotEmpty()
+  @IsIn(['google', 'github', 'x'])
+  provider!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  providerId!: string;
+
+  @IsEmail()
+  @IsNotEmpty()
+  email!: string;
 
   @IsString()
   @IsOptional()

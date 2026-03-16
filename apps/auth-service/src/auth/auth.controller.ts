@@ -1,7 +1,7 @@
 import { Controller, Post, Body, UseGuards, Res, Req, Get, Delete, Param } from '@nestjs/common';
 import { Response } from 'express';
 import { AuthService } from './auth.service';
-import { RegisterDto, CurrentUser, RefreshTokenDto, JwtAuthGuard, GoogleLoginDto } from '@app/common';
+import { RegisterDto, CurrentUser, RefreshTokenDto, JwtAuthGuard, GoogleLoginDto, SocialLoginDto } from '@app/common';
 import { LocalAuthGuard } from '../guards/local-auth.guard';
 import { UserDocument } from '@app/database';
 import { Request } from 'express';
@@ -13,6 +13,13 @@ export class AuthController {
   @Post('google')
   async googleLogin(@Body() googleLoginDto: GoogleLoginDto, @Res({ passthrough: true }) response: Response) {
     const result = await this.authService.googleLogin(googleLoginDto);
+    this.setAuthCookies(response, result.access_token, result.refresh_token);
+    return result;
+  }
+
+  @Post('social')
+  async socialLogin(@Body() socialLoginDto: SocialLoginDto, @Res({ passthrough: true }) response: Response) {
+    const result = await this.authService.socialLogin(socialLoginDto);
     this.setAuthCookies(response, result.access_token, result.refresh_token);
     return result;
   }

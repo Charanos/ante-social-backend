@@ -141,8 +141,9 @@ export class AdminService {
     const safeOffset = Math.max(Number(offset) || 0, 0);
 
     const filter: Record<string, any> = {};
-    if (search) {
-      const regex = new RegExp(search, 'i');
+    const safeSearch = this.sanitizeSearch(search);
+    if (safeSearch) {
+      const regex = new RegExp(safeSearch, 'i');
       filter.$or = [{ email: regex }, { username: regex }, { fullName: regex }];
     }
     if (role) filter.role = role;
@@ -200,6 +201,7 @@ export class AdminService {
       user.isBanned = true;
       user.banReason = 'Deleted by admin';
       user.isFlagged = false;
+      user.isDeleted = true;
 
       await user.save();
       await this.logAudit('DELETE_USER', userId, { adminId, entityType: 'user' });
@@ -1582,8 +1584,17 @@ export class AdminService {
       }
 
       const slug = payload.slug
-        ? String(payload.slug).trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-')
+        ? String(payload.slug)
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9-]/g, '-')
+            .replace(/-+/g, '-')
+            .replace(/(^-|-$)/g, '')
         : title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+
+      if (!slug) {
+        throw new BadRequestException('Slug is required');
+      }
 
       const existing = await this.blogModel.findOne({ slug }).exec();
       if (existing) {
@@ -2144,8 +2155,9 @@ export class AdminService {
     const safeOffset = Math.max(Number(offset) || 0, 0);
 
     const filter: Record<string, any> = {};
-    if (search) {
-      const regex = new RegExp(search, 'i');
+    const safeSearch = this.sanitizeSearch(search);
+    if (safeSearch) {
+      const regex = new RegExp(safeSearch, 'i');
       filter.$or = [{ name: regex }, { description: regex }, { category: regex }];
     }
     if (status === 'suspended') {
@@ -2219,8 +2231,7 @@ export class AdminService {
     await this.logAudit(
       'GROUP_ROLE_OVERRIDE',
       group._id.toString(),
-      { memberId, role: normalizedRole },
-      adminId,
+      { memberId, role: normalizedRole, adminId, entityType: 'group' },
     );
 
     return group;
@@ -2238,7 +2249,11 @@ export class AdminService {
       await group.save();
     }
 
-    await this.logAudit('GROUP_SUSPENDED', group._id.toString(), { reason }, adminId);
+    await this.logAudit('GROUP_SUSPENDED', group._id.toString(), {
+      reason,
+      adminId,
+      entityType: 'group',
+    });
     return group;
   }
 
@@ -2254,7 +2269,10 @@ export class AdminService {
       await group.save();
     }
 
-    await this.logAudit('GROUP_UNSUSPENDED', group._id.toString(), {}, adminId);
+    await this.logAudit('GROUP_UNSUSPENDED', group._id.toString(), {
+      adminId,
+      entityType: 'group',
+    });
     return group;
   }
 
@@ -2283,7 +2301,10 @@ export class AdminService {
       );
     }
 
-    await this.logAudit('GROUP_DELETED', group._id.toString(), {}, adminId);
+    await this.logAudit('GROUP_DELETED', group._id.toString(), {
+      adminId,
+      entityType: 'group',
+    });
     return { success: true, id: groupId };
   }
 
@@ -2448,6 +2469,13 @@ export class AdminService {
       return undefined;
     }
     return new Types.ObjectId(value);
+  }
+
+  private sanitizeSearch(value?: string) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const truncated = raw.length > 128 ? raw.slice(0, 128) : raw;
+    return truncated.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
   private normalizeLandingPageKey(value?: string) {

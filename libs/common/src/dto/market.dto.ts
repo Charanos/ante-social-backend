@@ -15,7 +15,7 @@ import {
   IsIn,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { MarketType, SettlementMethod, OddsType, UserTier } from '../constants';
+import { MarketType, SettlementMethod, OddsType, UserTier, MarketStatus } from '../constants';
 
 export class MarketOutcomeDto {
   @IsOptional()
@@ -170,6 +170,14 @@ export class CreateMarketDto {
   @IsOptional()
   @IsString()
   externalSource?: string;
+
+  @IsOptional()
+  @IsEnum(MarketStatus)
+  status?: MarketStatus;
+
+  @IsOptional()
+  @IsString()
+  adminReport?: string;
 }
 
 export class PlacePredictionDto {

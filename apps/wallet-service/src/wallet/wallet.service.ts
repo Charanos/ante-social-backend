@@ -525,22 +525,28 @@ export class WalletService {
     description: string,
     type: string,
   ) {
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new BadRequestException('Invalid user ID format');
+    }
+    const safeAmount = this.normalizeAmount(amount);
+    const safeCurrency = this.normalizeCurrency(currency);
+
     const savedTx = await this.withMongoTransaction(async (session) => {
       const wallet = await this.applyWalletUpdateWithRetry(
         userId,
         () => {
-          if (currency === 'USD') {
+          if (safeCurrency === 'USD') {
             return {
               $inc: {
-                balanceUsd: amount,
-                totalDeposits: type === TransactionType.DEPOSIT ? amount : 0,
-                totalWinnings: type === TransactionType.BET_PAYOUT ? amount : 0,
+                balanceUsd: safeAmount,
+                totalDeposits: type === TransactionType.DEPOSIT ? safeAmount : 0,
+                totalWinnings: type === TransactionType.BET_PAYOUT ? safeAmount : 0,
               },
             } as UpdateQuery<WalletDocument>;
           }
           return {
             $inc: {
-              balanceKsh: amount,
+              balanceKsh: safeAmount,
             },
           } as UpdateQuery<WalletDocument>;
         },
@@ -551,8 +557,8 @@ export class WalletService {
         userId: new Types.ObjectId(userId),
         walletId: wallet._id,
         type,
-        amount,
-        currency,
+        amount: safeAmount,
+        currency: safeCurrency,
         description,
         status: TransactionStatus.COMPLETED,
         paymentProvider: 'internal',
@@ -565,8 +571,8 @@ export class WalletService {
       userId,
       transactionId: savedTx._id.toString(),
       type,
-      amount,
-      currency,
+      amount: safeAmount,
+      currency: safeCurrency,
       status: TransactionStatus.COMPLETED,
       description,
     });
@@ -581,29 +587,35 @@ export class WalletService {
     description: string,
     type: string,
   ) {
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new BadRequestException('Invalid user ID format');
+    }
+    const safeAmount = this.normalizeAmount(amount);
+    const safeCurrency = this.normalizeCurrency(currency);
+
     const savedTx = await this.withMongoTransaction(async (session) => {
       const wallet = await this.applyWalletUpdateWithRetry(
         userId,
         (currentWallet) => {
-          if (currency === 'USD') {
-            if (currentWallet.balanceUsd < amount) {
+          if (safeCurrency === 'USD') {
+            if (currentWallet.balanceUsd < safeAmount) {
               throw new BadRequestException('Insufficient funds');
             }
             return {
               $inc: {
-                balanceUsd: -amount,
-                totalWithdrawals: type === TransactionType.WITHDRAWAL ? amount : 0,
-                totalLosses: type === TransactionType.BET_PLACED ? amount : 0,
+                balanceUsd: -safeAmount,
+                totalWithdrawals: type === TransactionType.WITHDRAWAL ? safeAmount : 0,
+                totalLosses: type === TransactionType.BET_PLACED ? safeAmount : 0,
               },
             } as UpdateQuery<WalletDocument>;
           }
 
-          if (currentWallet.balanceKsh < amount) {
+          if (currentWallet.balanceKsh < safeAmount) {
             throw new BadRequestException('Insufficient funds');
           }
           return {
             $inc: {
-              balanceKsh: -amount,
+              balanceKsh: -safeAmount,
             },
           } as UpdateQuery<WalletDocument>;
         },
@@ -614,8 +626,8 @@ export class WalletService {
         userId: new Types.ObjectId(userId),
         walletId: wallet._id,
         type,
-        amount,
-        currency,
+        amount: safeAmount,
+        currency: safeCurrency,
         description,
         status: TransactionStatus.COMPLETED,
         paymentProvider: 'internal',
@@ -628,8 +640,8 @@ export class WalletService {
       userId,
       transactionId: savedTx._id.toString(),
       type,
-      amount,
-      currency,
+      amount: safeAmount,
+      currency: safeCurrency,
       status: TransactionStatus.COMPLETED,
       description,
     });
@@ -966,6 +978,22 @@ export class WalletService {
       .exec();
     const tier = normalizeUserTier(user?.tier);
     return tier in DAILY_LIMITS ? tier : UserTier.NOVICE;
+  }
+
+  private normalizeCurrency(value: string) {
+    const normalized = String(value || 'USD').trim().toUpperCase();
+    if (normalized !== 'USD' && normalized !== 'KSH') {
+      throw new BadRequestException('Unsupported currency');
+    }
+    return normalized;
+  }
+
+  private normalizeAmount(value: number) {
+    const amount = Number(value);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('Amount must be greater than 0');
+    }
+    return amount;
   }
 
   private validateTronAddress(address: string) {

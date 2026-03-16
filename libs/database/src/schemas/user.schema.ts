@@ -14,6 +14,12 @@ export class User {
   @Prop({ unique: true, sparse: true })
   googleId?: string;
 
+  @Prop({ unique: true, sparse: true })
+  githubId?: string;
+
+  @Prop({ unique: true, sparse: true })
+  xId?: string;
+
   @Prop({ required: false })
   passwordHash?: string;
 
@@ -169,6 +175,9 @@ export class User {
   @Prop()
   banReason?: string;
 
+  @Prop({ default: false })
+  isDeleted!: boolean;
+
   // Timestamp fields are materialized by `timestamps: true` and added here for typing.
   @Prop()
   createdAt?: Date;
@@ -183,4 +192,8 @@ export const UserSchema = SchemaFactory.createForClass(User);
 UserSchema.index({ role: 1 });
 UserSchema.index({ reputationScore: -1 });
 UserSchema.index({ tier: 1 });
+UserSchema.index({ isDeleted: 1 });
+UserSchema.index({ googleId: 1 });
+UserSchema.index({ githubId: 1 });
+UserSchema.index({ xId: 1 });
 UserSchema.index({ walletId: 1 }, { unique: true, sparse: true });

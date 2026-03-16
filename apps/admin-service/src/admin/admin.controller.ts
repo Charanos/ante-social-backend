@@ -71,21 +71,26 @@ export class AdminController {
   }
 
   @Post('users/:id/ban')
-  async banUser(@Param('id') id: string, @Body('reason') reason?: string) {
-    return this.adminService.banUser(id, reason);
+  async banUser(
+    @Param('id') id: string,
+    @CurrentUser() admin: UserDocument,
+    @Body('reason') reason?: string,
+  ) {
+    return this.adminService.banUser(id, reason, admin._id.toString());
   }
 
   @Post('users/:id/unban')
-  async unbanUser(@Param('id') id: string) {
-    return this.adminService.unbanUser(id);
+  async unbanUser(@Param('id') id: string, @CurrentUser() admin: UserDocument) {
+    return this.adminService.unbanUser(id, admin._id.toString());
   }
 
   @Patch('users/:userId/tier')
   async updateTier(
     @Param('userId') userId: string,
     @Body('tier') tier: string,
+    @CurrentUser() admin: UserDocument,
   ) {
-    return this.adminService.updateUserTier(userId, tier);
+    return this.adminService.updateUserTier(userId, tier, admin._id.toString());
   }
 
   // ─── Group Governance ──────────────────────────────────────────
