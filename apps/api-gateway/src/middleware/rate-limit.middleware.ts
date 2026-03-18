@@ -42,6 +42,13 @@ export class RateLimitMiddleware implements NestMiddleware {
         await this.redis.connect();
       }
 
+      // Whitelist public metrics and landing page content from gateway-level flood control.
+      // These endpoints have their own granular rate limits in the backend services.
+      const isPublicPath = req.path.startsWith('/api/v1/public') || req.path.startsWith('/api/public');
+      if (isPublicPath) {
+        return next();
+      }
+
       const forwardedFor = req.headers['x-forwarded-for'];
       const ip = Array.isArray(forwardedFor)
         ? forwardedFor[0]

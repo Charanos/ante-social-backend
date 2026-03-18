@@ -622,6 +622,7 @@ async function seedMarkets() {
       const days = seed.closeDaysFromNow ?? 7;
       const closeTime = new Date(now + days * 24 * 60 * 60 * 1000);
       const settlementTime = new Date(closeTime.getTime() + 60 * 60 * 1000);
+      const externalId = seed.title.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + Math.floor(now / 1000);
 
       await MarketModel.create({
         title: seed.title,
@@ -642,6 +643,8 @@ async function seedMarkets() {
         status: 'active',
         settlementMethod: 'admin_report',
         oddsType: 'pari_mutuel',
+        externalSource: 'ai-agent',
+        externalId: externalId,
         outcomes: seed.outcomes.map((o) => ({
           optionText: o.optionText,
           mediaUrl: o.mediaUrl,

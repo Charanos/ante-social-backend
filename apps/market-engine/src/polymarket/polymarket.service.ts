@@ -144,6 +144,7 @@ export class PolymarketService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PolymarketService.name);
   private readonly cache: PolymarketCache;
   private pruneInterval: NodeJS.Timeout;
+  private syncInterval: NodeJS.Timeout;
 
   constructor(
     private readonly gamma: GammaClient,
@@ -163,10 +164,17 @@ export class PolymarketService implements OnModuleInit, OnModuleDestroy {
     await this.cache.connect();
     // Prune stale mem cache entries every 5 minutes
     this.pruneInterval = setInterval(() => this.cache.prune(), 5 * 60 * 1000);
+    
+    // Initial sync and then every 30 minutes
+    this.syncTopMarkets().catch(err => this.logger.error('Initial Polymarket sync failed', err));
+    this.syncInterval = setInterval(() => {
+      this.syncTopMarkets().catch(err => this.logger.error('Periodic Polymarket sync failed', err));
+    }, 30 * 60 * 1000);
   }
 
   async onModuleDestroy() {
     clearInterval(this.pruneInterval);
+    clearInterval(this.syncInterval);
     await this.cache.disconnect();
   }
 

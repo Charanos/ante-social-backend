@@ -24,7 +24,7 @@ function handleProxyError(_err: unknown, _req: unknown, res: any) {
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['.env.local', '.env.production'],
+      envFilePath: ['.env', '.env.local', '.env.production'],
       validate: validateEnv,
     }),
   ],

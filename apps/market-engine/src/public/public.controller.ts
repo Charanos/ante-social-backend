@@ -13,13 +13,13 @@ export class PublicController {
   }
 
   @Get('metrics/deposits')
-  @RateLimit({ limit: 200, ttl: 60 })
+  @RateLimit({ limit: 1000, ttl: 60 })
   async getPublicDepositMetrics() {
     return this.publicService.getPublicDepositMetrics();
   }
 
   @Get('metrics/landing')
-  @RateLimit({ limit: 200, ttl: 60 })
+  @RateLimit({ limit: 1000, ttl: 60 })
   async getPublicLandingMetrics() {
     return this.publicService.getPublicLandingMetrics();
   }
