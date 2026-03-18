@@ -18,28 +18,7 @@ export class PolymarketSyncScheduler {
     this.logger.log('Starting scheduled Polymarket sync...');
     
     try {
-      // Fetch trending markets
-      const trending = await this.polymarket.getTrendingMarkets(40);
-      await this.polymarket.syncToNativeMarkets(trending);
-      
-      // Fetch featured markets
-      const featured = await this.polymarket.getFeaturedMarkets(40);
-      await this.polymarket.syncToNativeMarkets(featured);
-
-      // Fetch sports markets
-      const sports = await this.polymarket.getSportsMarkets({ limit: 40 });
-      await this.polymarket.syncToNativeMarkets(sports);
-      
-      // Fetch featured events and their markets
-      const events = await this.polymarket.listEvents({ limit: 20, active: true });
-      for (const event of events) {
-        if (event.markets && event.markets.length > 0) {
-          await this.polymarket.syncToNativeMarkets(event.markets);
-        }
-      }
-      
-      // Fetch top tags
-      await this.polymarket.getTags();
+      await this.polymarket.syncTopMarkets();
       
       this.logger.log('Polymarket sync completed successfully.');
     } catch (error) {

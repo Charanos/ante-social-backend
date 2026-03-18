@@ -77,6 +77,8 @@ export class MarketService {
       isTrending,
       isRecurring,
       search,
+      externalSource,
+      externalId,
       includeDeleted = 'false',
       limit = 20,
       offset = 0,
@@ -103,6 +105,8 @@ export class MarketService {
     if (isFeatured !== undefined) filter.isFeatured = isFeatured === 'true';
     if (isTrending !== undefined) filter.isTrending = isTrending === 'true';
     if (isRecurring !== undefined) filter.isRecurring = isRecurring === 'true';
+    if (externalSource) filter.externalSource = externalSource;
+    if (externalId) filter.externalId = externalId;
 
     if (search) {
       const regex = new RegExp(search, 'i');

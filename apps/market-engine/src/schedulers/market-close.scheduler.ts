@@ -38,20 +38,19 @@ export class MarketCloseScheduler {
       return rightRank - leftRank;
     });
 
-    let settledCount = 0;
+    let closedCount = 0;
     for (const market of prioritizedMarkets) {
       try {
         await this.marketService.closeMarket(market._id.toString());
-        await this.marketService.settleMarket(market._id.toString());
-        settledCount += 1;
+        closedCount += 1;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        this.logger.error(`Auto-settlement failed for ${market._id.toString()}: ${message}`);
+        this.logger.error(`Auto-close failed for ${market._id.toString()}: ${message}`);
       }
     }
 
-    if (settledCount > 0) {
-      this.logger.log(`Auto closed and settled ${settledCount} markets.`);
+    if (closedCount > 0) {
+      this.logger.log(`Auto closed ${closedCount} markets.`);
     }
   }
 

@@ -1,13 +1,16 @@
 import {
   Controller,
   Get,
+  Post,
   Param,
   Query,
   BadRequestException,
   HttpCode,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 import { PolymarketService } from './polymarket.service';
+import { JwtAuthGuard, Roles, RolesGuard, UserRole } from '@app/common';
 import type {
   GammaMarketsFilter,
   GammaEventsFilter,
@@ -98,6 +101,14 @@ export class PolymarketController {
   @Get('markets/:id/orderbook')
   async getMarketOrderBook(@Param('id') tokenId: string) {
     return this.polymarket.getMarketOrderBook(tokenId);
+  }
+
+  @Post('sync')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  async syncPolymarket() {
+    const summary = await this.polymarket.syncTopMarkets();
+    return { success: true, summary };
   }
 
   // ─── Events ────────────────────────────────────────────────────────────────

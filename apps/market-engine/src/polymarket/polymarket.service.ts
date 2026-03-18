@@ -313,11 +313,72 @@ export class PolymarketService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Fetch and sync top Polymarket markets (trending, featured, sports, active events).
+   * Returns a lightweight summary for manual invocations.
+   */
+  async syncTopMarkets(): Promise<{
+    trending: number;
+    featured: number;
+    sports: number;
+    eventMarkets: number;
+  }> {
+    const trending = await this.getTrendingMarkets(40);
+    await this.syncToNativeMarkets(trending);
+
+    const featured = await this.getFeaturedMarkets(40);
+    await this.syncToNativeMarkets(featured);
+
+    const sports = await this.getSportsMarkets({ limit: 40 });
+    await this.syncToNativeMarkets(sports);
+
+    const events = await this.listEvents({ limit: 20, active: true });
+    let eventMarkets = 0;
+    for (const event of events) {
+      if (event.markets && event.markets.length > 0) {
+        eventMarkets += event.markets.length;
+        await this.syncToNativeMarkets(event.markets);
+      }
+    }
+
+    await this.getTags();
+
+    return {
+      trending: trending.length,
+      featured: featured.length,
+      sports: sports.length,
+      eventMarkets,
+    };
+  }
+
+  /**
    * Syncs Polymarket data to native Ante Social markets
    */
   async syncToNativeMarkets(polyMarkets: PolymarketMarket[]) {
-    const admin = await this.userModel.findOne({ role: 'admin' }).select('_id').lean();
-    const adminId = admin?._id as Types.ObjectId;
+    let adminId: Types.ObjectId | undefined;
+    const explicitAdminId =
+      this.config.get<string>('POLYMARKET_ADMIN_ID') ||
+      this.config.get<string>('AI_AGENT_USER_ID');
+
+    if (explicitAdminId) {
+      try {
+        adminId = new Types.ObjectId(explicitAdminId);
+      } catch {
+        this.logger.warn(`Invalid POLYMARKET_ADMIN_ID provided: ${explicitAdminId}`);
+      }
+    }
+
+    if (!adminId) {
+      const admin = await this.userModel
+        .findOne({ role: { $in: ['admin', 'moderator'] } })
+        .select('_id')
+        .lean();
+      adminId = admin?._id as Types.ObjectId | undefined;
+    }
+
+    if (!adminId) {
+      this.logger.error('No admin user available to attribute Polymarket imports. Skipping sync.');
+      return;
+    }
 
     for (const pm of polyMarkets) {
       const hasTokens = pm.tokens && pm.tokens.length >= 2;
