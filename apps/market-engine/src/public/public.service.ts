@@ -84,14 +84,6 @@ export class PublicService {
       ])
       .exec();
 
-    const normalizeProvider = (value?: string) => {
-      const provider = String(value || '').toLowerCase();
-      if (provider === 'mpesa') return 'mpesa';
-      if (provider === 'nowpayments') return 'crypto';
-      if (provider.includes('crypto')) return 'crypto';
-      return provider || 'unknown';
-    };
-
     let mpesaAmount = 0;
     let mpesaCount = 0;
     let mpesaLast: Date | null = null;
@@ -101,7 +93,7 @@ export class PublicService {
     let totalCount = 0;
 
     for (const row of rows || []) {
-      const provider = normalizeProvider(row?._id?.provider);
+      const provider = this.normalizeProvider(row?._id?.provider);
       const amount = Number(row?.amount || 0);
       const count = Number(row?.count || 0);
       totalCount += count;
@@ -139,6 +131,86 @@ export class PublicService {
       },
       totalCount,
     };
+  }
+
+  async getPublicWithdrawalMetrics() {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const now = new Date();
+
+    const rows = await this.transactionModel
+      .aggregate([
+        {
+          $match: {
+            type: 'withdrawal',
+            status: 'completed',
+            createdAt: { $gte: since },
+          },
+        },
+        {
+          $group: {
+            _id: { provider: '$paymentProvider', currency: '$currency' },
+            amount: { $sum: '$amount' },
+            count: { $sum: 1 },
+            latest: { $max: '$createdAt' },
+          },
+        },
+      ])
+      .exec();
+
+    let mpesaAmount = 0;
+    let mpesaCount = 0;
+    let mpesaLast: Date | null = null;
+    let cryptoAmount = 0;
+    let cryptoCount = 0;
+    let cryptoLast: Date | null = null;
+    let totalCount = 0;
+
+    for (const row of rows || []) {
+      const provider = this.normalizeProvider(row?._id?.provider);
+      const amount = Number(row?.amount || 0);
+      const count = Number(row?.count || 0);
+      totalCount += count;
+
+      if (provider === 'mpesa') {
+        mpesaAmount += amount;
+        mpesaCount += count;
+        if (row?.latest && (!mpesaLast || row.latest > mpesaLast)) {
+          mpesaLast = row.latest;
+        }
+      } else if (provider === 'crypto') {
+        cryptoAmount += amount;
+        cryptoCount += count;
+        if (row?.latest && (!cryptoLast || row.latest > cryptoLast)) {
+          cryptoLast = row.latest;
+        }
+      }
+    }
+
+    return {
+      range: { from: since.toISOString(), to: now.toISOString() },
+      totals: {
+        mpesa: {
+          amount: mpesaAmount,
+          currency: 'KSH',
+          count: mpesaCount,
+          lastAt: mpesaLast?.toISOString() || null,
+        },
+        crypto: {
+          amount: cryptoAmount,
+          currency: 'USD',
+          count: cryptoCount,
+          lastAt: cryptoLast?.toISOString() || null,
+        },
+      },
+      totalCount,
+    };
+  }
+
+  private normalizeProvider(value?: string) {
+    const provider = String(value || '').toLowerCase();
+    if (provider === 'mpesa' || provider === 'm-pesa') return 'mpesa';
+    if (provider === 'nowpayments' || provider.includes('crypto')) return 'crypto';
+    return provider || 'unknown';
   }
 
   async getPublicLandingMetrics() {

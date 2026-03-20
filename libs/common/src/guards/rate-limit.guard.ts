@@ -77,8 +77,15 @@ export class RateLimitGuard implements CanActivate, OnModuleInit, OnModuleDestro
 
       const current = await this.redis.incr(key);
       
+      // Ensure TTL is set. If current is 1, it's a new key. 
+      // If current > 1 but TTL is -1 (permanent), set it anyway as a safety measure.
       if (current === 1) {
         await this.redis.expire(key, rateLimit.ttl);
+      } else {
+        const ttl = await this.redis.ttl(key);
+        if (ttl === -1) {
+          await this.redis.expire(key, rateLimit.ttl);
+        }
       }
 
       if (current > rateLimit.limit) {

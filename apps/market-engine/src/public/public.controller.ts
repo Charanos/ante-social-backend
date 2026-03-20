@@ -18,6 +18,12 @@ export class PublicController {
     return this.publicService.getPublicDepositMetrics();
   }
 
+  @Get('metrics/withdrawals')
+  @RateLimit({ limit: 1000, ttl: 60 })
+  async getPublicWithdrawalMetrics() {
+    return this.publicService.getPublicWithdrawalMetrics();
+  }
+
   @Get('metrics/landing')
   @RateLimit({ limit: 1000, ttl: 60 })
   async getPublicLandingMetrics() {
